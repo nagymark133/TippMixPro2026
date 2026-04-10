@@ -187,7 +187,7 @@ Használd a bal oldali menüt, vagy válassz az alábbi gyorslinkek közül:
 <div style="padding: 1rem; background: #1a1d2e; border-radius: 10px; border: 1px solid #2d3348;">
     <strong>💡 Első lépések:</strong>
     <ol style="color:#94a3b8; margin:0.5rem 0 0 0;">
-        <li>Állítsd be az API kulcsokat a <code>.env</code> fájlban</li>
+        <li>Állítsd be az API kulcsokat Streamlit Secrets-ben vagy lokálisan a <code>.env</code> fájlban</li>
         <li>Menj a <strong>📊 Napi Meccsek</strong> oldalra és frissítsd az adatokat</li>
         <li>Válassz egy meccset az <strong>🎯 Elemzés</strong> oldalon</li>
         <li>Tippelj virtuálisan a <strong>💰 Paper Trading</strong> oldalon</li>

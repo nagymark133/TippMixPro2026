@@ -16,7 +16,8 @@ pip install -r requirements.txt
 
 ### 2. API kulcsok beállítása
 
-Másold le a `.env.example` fájlt `.env` néven és töltsd ki:
+Lokális futtatáshoz másold le a `.env.example` fájlt `.env` néven és töltsd ki:
+
 
 ```bash
 cp .env.example .env
@@ -25,6 +26,13 @@ cp .env.example .env
 ```env
 API_FOOTBALL_KEY=your_api_football_key_here
 ZHIPU_API_KEY=your_zhipu_api_key_here
+```
+
+Streamlit Community Cloudon ne `.env` fájlt tölts fel, hanem az app `Secrets` felületén add meg ugyanezeket a kulcsokat:
+
+```toml
+API_FOOTBALL_KEY = "your_api_football_key_here"
+ZHIPU_API_KEY = "your_zhipu_api_key_here"
 ```
 
 - **API-Football**: Regisztrálj a [api-football.com](https://www.api-football.com/) oldalon (free tier: 100 request/nap)
@@ -53,7 +61,7 @@ A dashboard elérhető lesz a `http://localhost:8501` címen.
 app.py                          # Streamlit főoldal
 pages/                          # Streamlit multi-page navigation
 core/
-  config.py                     # Konfiguráció (.env)
+  config.py                     # Konfiguráció (Streamlit Secrets + .env fallback)
   database.py                   # SQLite adatbázis réteg
   api_football.py               # API-Football kliens (rate-limit aware)
   zhipu_ai.py                   # Zhipu AI GLM kliens
