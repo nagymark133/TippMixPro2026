@@ -1,0 +1,7 @@
+.env
+data/*.db
+models/*.pkl
+models/*.joblib
+__pycache__/
+*.pyc
+.streamlit/secrets.toml

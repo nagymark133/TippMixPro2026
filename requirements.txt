@@ -1,0 +1,9 @@
+streamlit>=1.30
+pandas
+numpy
+scikit-learn
+xgboost
+joblib
+requests
+python-dotenv
+altair
