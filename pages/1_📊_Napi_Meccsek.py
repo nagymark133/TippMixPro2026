@@ -29,7 +29,7 @@ with col_quota:
     if rl["remaining"] is not None:
         st.info(f"API kvóta: **{rl['remaining']}** / {rl['limit']}")
     elif not API_FOOTBALL_KEY:
-        st.error("⚠️ Nincs API kulcs beállítva. Streamliten add meg a Secrets-ben, lokálisan pedig .env-ben.")
+        st.error("⚠️ Nincs API kulcs beállítva. Streamliten add meg a Secrets-ben, lokálisan pedig a .env fájlban!")
 
 date_str = selected_date.strftime("%Y-%m-%d")
 

@@ -4,9 +4,9 @@ from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
 
-load_dotenv()
-
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(dotenv_path=BASE_DIR / ".env")
+
 DATA_DIR = BASE_DIR / "data"
 MODELS_DIR = BASE_DIR / "models"
 DATA_DIR.mkdir(exist_ok=True)
@@ -24,7 +24,6 @@ def get_secret(key: str, default: str = "") -> str:
         pass
     return os.getenv(key, default)
 
-# API-Football
 API_FOOTBALL_KEY = get_secret("API_FOOTBALL_KEY")
 API_FOOTBALL_BASE = "https://v3.football.api-sports.io"
 API_FOOTBALL_HEADERS = {
@@ -32,7 +31,17 @@ API_FOOTBALL_HEADERS = {
 }
 
 # Zhipu AI (GLM)
+<<<<<<< HEAD
 ZHIPU_API_KEY = get_secret("ZHIPU_API_KEY")
+=======
+ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "")
+
+try:
+    if not ZHIPU_API_KEY and "ZHIPU_API_KEY" in st.secrets:
+        ZHIPU_API_KEY = st.secrets["ZHIPU_API_KEY"]
+except Exception:
+    pass
+>>>>>>> f3a9379 (Fix .env loading and improve API key error message for Streamlit and local)
 ZHIPU_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
 ZHIPU_MODEL = "glm-4-flash"
 
