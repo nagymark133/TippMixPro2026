@@ -31,17 +31,7 @@ API_FOOTBALL_HEADERS = {
 }
 
 # Zhipu AI (GLM)
-<<<<<<< HEAD
 ZHIPU_API_KEY = get_secret("ZHIPU_API_KEY")
-=======
-ZHIPU_API_KEY = os.getenv("ZHIPU_API_KEY", "")
-
-try:
-    if not ZHIPU_API_KEY and "ZHIPU_API_KEY" in st.secrets:
-        ZHIPU_API_KEY = st.secrets["ZHIPU_API_KEY"]
-except Exception:
-    pass
->>>>>>> f3a9379 (Fix .env loading and improve API key error message for Streamlit and local)
 ZHIPU_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
 ZHIPU_MODEL = "glm-4-flash"
 
