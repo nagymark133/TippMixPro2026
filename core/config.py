@@ -15,14 +15,61 @@ MODELS_DIR.mkdir(exist_ok=True)
 DB_PATH = DATA_DIR / "tippmix.db"
 
 
+def _normalize_secret(value) -> str:
+    if value is None:
+        return ""
+    return str(value).strip().strip('"').strip("'")
+
+
+def _find_in_mapping(mapping, keys: set[str]) -> str:
+    try:
+        items = mapping.items()
+    except Exception:
+        return ""
+
+    normalized_keys = {candidate.lower() for candidate in keys}
+
+    for current_key, current_value in items:
+        if str(current_key).lower() in normalized_keys:
+            value = _normalize_secret(current_value)
+            if value:
+                return value
+
+        if hasattr(current_value, "items"):
+            nested_value = _find_in_mapping(current_value, keys)
+            if nested_value:
+                return nested_value
+
+    return ""
+
+
 def get_secret(key: str, default: str = "") -> str:
+    candidates = {
+        key,
+        key.lower(),
+        key.upper(),
+    }
+
     try:
         value = st.secrets.get(key)
-        if value is not None:
-            return str(value)
+        value = _normalize_secret(value)
+        if value:
+            return value
     except Exception:
         pass
-    return os.getenv(key, default)
+
+    try:
+        nested_value = _find_in_mapping(st.secrets, candidates)
+        if nested_value:
+            return nested_value
+    except Exception:
+        pass
+
+    env_value = _normalize_secret(os.getenv(key, default))
+    if env_value:
+        return env_value
+
+    return default
 
 API_FOOTBALL_KEY = get_secret("API_FOOTBALL_KEY")
 API_FOOTBALL_BASE = "https://v3.football.api-sports.io"

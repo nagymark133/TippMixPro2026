@@ -35,6 +35,14 @@ API_FOOTBALL_KEY = "your_api_football_key_here"
 ZHIPU_API_KEY = "your_zhipu_api_key_here"
 ```
 
+Szekciós TOML formátum is támogatott, például:
+
+```toml
+[api]
+API_FOOTBALL_KEY = "your_api_football_key_here"
+ZHIPU_API_KEY = "your_zhipu_api_key_here"
+```
+
 - **API-Football**: Regisztrálj a [api-football.com](https://www.api-football.com/) oldalon (free tier: 100 request/nap)
 - **Zhipu AI**: Regisztrálj a [open.bigmodel.cn](https://open.bigmodel.cn/) oldalon
 
