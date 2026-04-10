@@ -208,6 +208,44 @@ if preds:
         away_name=away_team.get("name", "Vendég"),
     )
 
+    # =====================================================================
+    # AI Kiemelt Ajánlata (87%+)
+    # =====================================================================
+    high_conf_tips = [t for t in tips if t["prob"] >= 0.87]
+    if high_conf_tips:
+        # Rendezzük növekvő valószínűség szerint: a "legrosszabb" biztos,
+        # ami még mindig >87%, adja a legmagasabb "implicit oddsot", tehát a legjobb value-t itt.
+        high_conf_tips.sort(key=lambda x: x["prob"])
+        ai_rec = high_conf_tips[0]
+        
+        st.markdown('<p class="section-header">🤖 AI Kiemelt Napi Ajánlata</p>', unsafe_allow_html=True)
+        st.markdown(f"""
+<div style="background:linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
+            border:1px solid #3b82f6; border-radius:12px; padding:1.2rem; margin-bottom:1.5rem;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="flex:1;">
+            <div style="color:#93c5fd; font-size:0.8rem; font-weight:700; text-transform:uppercase; letter-spacing:1px; margin-bottom:0.2rem;">✨ BIZTOS TIPP (87%+)</div>
+            <div style="color:#eff6ff; font-size:1.4rem; font-weight:700; margin-bottom:0.2rem;">
+                {ai_rec['confidence_emoji']} {ai_rec['selection']}
+            </div>
+            <div style="color:#60a5fa; font-size:0.9rem;">
+                Piac: <span style="color:#93c5fd;">{ai_rec['market']}</span>
+            </div>
+        </div>
+        <div style="text-align:right;">
+            <div style="color:#22c55e; font-size:2.2rem; font-weight:800; line-height:1;">
+                {ai_rec['prob']:.1%}
+            </div>
+        </div>
+    </div>
+    <div style="background:#0f172a88; border:1px dashed #1e293b; padding:0.8rem; border-radius:8px; margin-top:1rem;">
+        <div style="color:#94a3b8; font-size:0.85rem; font-weight:600; margin-bottom:0.2rem;">Részletek:</div>
+        <div style="color:#cbd5e1; font-size:0.9rem;">{ai_rec['reasoning']}<br/>
+        <span style="color:#64748b; font-size:0.8rem; font-style:italic;">Az elérhető 87% feletti valószínűséggel rendelkező tippek közül ez kínálja a legjobb kockázat/hozam (legkisebb túl-biztosított odds) arányt.</span></div>
+    </div>
+</div>
+        """, unsafe_allow_html=True)
+
     # Group tips by category
     categories = {
         "⚽ Eredmény": [],
