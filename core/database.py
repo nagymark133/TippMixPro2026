@@ -1,4 +1,6 @@
 import sqlite3
+import json
+import requests as _requests
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -8,22 +10,48 @@ SQLITE_CONNECT_TIMEOUT_SECONDS = 30
 SQLITE_BUSY_TIMEOUT_MS = 30000
 
 # ---------------------------------------------------------------------------
-# Turso / libsql vs local SQLite selection
+# Turso HTTP API client (no binary deps — uses requests)
 # ---------------------------------------------------------------------------
 
 _USE_TURSO = bool(TURSO_DATABASE_URL and TURSO_AUTH_TOKEN)
 
-if _USE_TURSO:
-    try:
-        import libsql_experimental as libsql
-    except ImportError as e:
-        raise ImportError(
-            "libsql-experimental könyvtár hiányzik. Futtasd: pip install libsql-experimental"
-        ) from e
+
+def _turso_base_url():
+    """Convert libsql:// URL to https:// for the Turso HTTP API."""
+    url = TURSO_DATABASE_URL
+    if url.startswith("libsql://"):
+        url = "https://" + url[len("libsql://"):]
+    return url.rstrip("/")
 
 
-class _LibsqlRow:
-    """Wraps a libsql tuple row so it behaves like sqlite3.Row (dict-like access)."""
+def _to_turso_arg(value):
+    """Convert a Python value to a Turso HTTP API typed argument."""
+    if value is None:
+        return {"type": "null"}
+    if isinstance(value, bool):
+        return {"type": "integer", "value": "1" if value else "0"}
+    if isinstance(value, int):
+        return {"type": "integer", "value": str(value)}
+    if isinstance(value, float):
+        return {"type": "float", "value": str(value)}
+    return {"type": "text", "value": str(value)}
+
+
+def _from_turso_value(v):
+    """Convert a Turso HTTP API value object back to a Python scalar."""
+    if v is None or v.get("type") == "null":
+        return None
+    t = v.get("type", "text")
+    val = v.get("value")
+    if t == "integer":
+        return int(val) if val is not None else None
+    if t == "float":
+        return float(val) if val is not None else None
+    return val
+
+
+class _TursoRow:
+    """Dict-like row returned by Turso HTTP API queries."""
     __slots__ = ("_data",)
 
     def __init__(self, keys, values):
@@ -44,69 +72,95 @@ class _LibsqlRow:
         return iter(self._data.values())
 
 
-class _WrappedCursor:
-    """Wraps a libsql cursor so fetchone/fetchall return _LibsqlRow objects."""
-
-    def __init__(self, cursor):
-        self._cursor = cursor
-
-    @property
-    def description(self):
-        return self._cursor.description
-
-    def _col_keys(self):
-        if self._cursor.description:
-            return [d[0] for d in self._cursor.description]
-        return []
-
-    def fetchone(self):
-        row = self._cursor.fetchone()
-        if row is None:
-            return None
-        keys = self._col_keys()
-        if not keys:
-            return row
-        return _LibsqlRow(keys, row)
-
-    def fetchall(self):
-        rows = self._cursor.fetchall()
-        if not rows:
-            return []
-        keys = self._col_keys()
-        if not keys:
-            return rows
-        return [_LibsqlRow(keys, r) for r in rows]
-
-
-class _LibsqlConn:
-    """Minimal connection wrapper around libsql that matches the sqlite3 API used here."""
+class _TursoConn:
+    """
+    Connection wrapper that uses the Turso HTTP v2 pipeline API.
+    No binary dependencies — only uses the 'requests' library.
+    Statements are batched and sent on commit().
+    """
 
     def __init__(self):
-        self._conn = libsql.connect(
-            database=TURSO_DATABASE_URL,
-            auth_token=TURSO_AUTH_TOKEN,
+        self._base = _turso_base_url()
+        self._headers = {
+            "Authorization": f"Bearer {TURSO_AUTH_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        self._pending: list[dict] = []   # buffered execute requests
+        self._results: list = []          # results from last pipeline call
+
+    def _make_stmt(self, sql, params=()):
+        stmt = {"sql": sql}
+        if params:
+            stmt["args"] = [_to_turso_arg(p) for p in params]
+        return stmt
+
+    def _pipeline(self, requests_list):
+        payload = {"requests": requests_list + [{"type": "close"}]}
+        resp = _requests.post(
+            f"{self._base}/v2/pipeline",
+            headers=self._headers,
+            data=json.dumps(payload),
+            timeout=30,
         )
+        resp.raise_for_status()
+        return resp.json().get("results", [])
 
     def execute(self, sql, params=()):
-        cur = self._conn.execute(sql, params)
-        return _WrappedCursor(cur)
+        """Execute immediately (single statement) and return a pseudo-cursor."""
+        stmt = self._make_stmt(sql, params)
+        results = self._pipeline([{"type": "execute", "stmt": stmt}])
+        result = results[0] if results else {}
+        if result.get("type") == "error":
+            raise Exception(f"Turso error: {result.get('error', result)}")
+        exec_result = result.get("response", {}).get("result", {})
+        cols = [c["name"] for c in exec_result.get("cols", [])]
+        raw_rows = exec_result.get("rows", [])
+        rows = [
+            _TursoRow(cols, [_from_turso_value(v) for v in r])
+            for r in raw_rows
+        ]
+        # Store for pending batch tracking
+        self._pending.append({"type": "execute", "stmt": stmt})
+        return _TursoResult(cols, rows)
 
     def executescript(self, sql):
-        # libsql doesn't have executescript; split and run individually
-        for stmt in sql.split(";"):
-            stmt = stmt.strip()
-            if stmt:
-                self._conn.execute(stmt)
+        """Execute multiple semicolon-separated statements."""
+        stmts = [s.strip() for s in sql.split(";") if s.strip()]
+        for stmt_sql in stmts:
+            self.execute(stmt_sql)
 
     def commit(self):
-        self._conn.commit()
+        """No-op — each execute() call is auto-committed via the pipeline."""
+        self._pending.clear()
 
     def rollback(self):
-        # libsql-experimental doesn't expose explicit rollback
-        pass
+        """No-op — Turso HTTP API auto-commits each request."""
+        self._pending.clear()
 
     def close(self):
-        pass  # libsql manages its own lifecycle
+        pass
+
+
+class _TursoResult:
+    """Pseudo-cursor returned by _TursoConn.execute()."""
+    __slots__ = ("_cols", "_rows", "_pos")
+
+    def __init__(self, cols, rows):
+        self._cols = cols
+        self._rows = rows
+        self._pos = 0
+
+    def fetchone(self):
+        if self._pos >= len(self._rows):
+            return None
+        row = self._rows[self._pos]
+        self._pos += 1
+        return row
+
+    def fetchall(self):
+        rows = self._rows[self._pos:]
+        self._pos = len(self._rows)
+        return rows
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +170,7 @@ class _LibsqlConn:
 @contextmanager
 def get_db():
     if _USE_TURSO:
-        conn = _LibsqlConn()
+        conn = _TursoConn()
     else:
         conn = sqlite3.connect(str(DB_PATH), timeout=SQLITE_CONNECT_TIMEOUT_SECONDS)
         conn.row_factory = sqlite3.Row
