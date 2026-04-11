@@ -5,7 +5,7 @@ import time
 from datetime import date, datetime
 
 from core.database import init_db, get_fixtures_by_date, get_all_leagues, get_team, get_latest_odds
-from core.api_football import fetch_fixtures_by_date, fetch_odds_for_fixture, get_rate_limit_info
+from core.api_football import fetch_fixtures_by_date, fetch_odds_for_fixture, get_rate_limit_info, get_last_api_error
 from core.odds_tracker import detect_dropping_odds, get_odds_history_df
 from core.config import FOOTBALL_DATA_KEY
 
@@ -45,6 +45,21 @@ date_str = selected_date.strftime("%Y-%m-%d")
 if refresh:
     with st.spinner("Meccsek letöltése..."):
         fixtures = fetch_fixtures_by_date(date_str)
+
+    if not fixtures:
+        api_error = get_last_api_error()
+        if api_error:
+            st.error(
+                "❌ Az API nem adott vissza meccset. "
+                "Ellenőrizd a FOOTBALL_DATA_KEY értékét, a kvótát és a dátumot. "
+                f"Részlet: {api_error}"
+            )
+        elif FOOTBALL_DATA_KEY.startswith("your_") or FOOTBALL_DATA_KEY.endswith("_here"):
+            st.error(
+                "❌ Úgy tűnik, példa API kulcs van beállítva (placeholder). "
+                "Adj meg valódi Football-Data kulcsot Streamlit Secrets-ben."
+            )
+
     if fixtures:
         # Fetch odds for each fixture (first bookmaker only)
         # BIZTONSÁGI LIMIT (10 requests / perc az ingyenes fiókban) -> 8 meccset töltünk be 6.1s szünetekkel

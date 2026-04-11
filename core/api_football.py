@@ -23,6 +23,9 @@ from core import database as db
 
 log = logging.getLogger(__name__)
 
+# Last API failure reason for UI diagnostics.
+_LAST_API_ERROR: str | None = None
+
 # ---------------------------------------------------------------------------
 # Status mapping: Football-Data.org -> internal short codes (FT, NS, …)
 # ---------------------------------------------------------------------------
@@ -81,8 +84,12 @@ def _update_rate_limit(remaining: str | None, limit: str | None):
 # ---------------------------------------------------------------------------
 
 def _request(endpoint: str, params: dict | None = None) -> dict | None:
+    global _LAST_API_ERROR
+    _LAST_API_ERROR = None
+
     if not FOOTBALL_DATA_KEY:
         log.warning("FOOTBALL_DATA_KEY not configured")
+        _LAST_API_ERROR = "FOOTBALL_DATA_KEY is missing"
         return None
 
     url = f"{FOOTBALL_DATA_BASE}/{endpoint.lstrip('/')}"
@@ -93,11 +100,20 @@ def _request(endpoint: str, params: dict | None = None) -> dict | None:
             resp.headers.get("X-Requests-Available-Minute"),
             "10",  # free tier: 10/min
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            preview = (resp.text or "")[:240].replace("\n", " ")
+            _LAST_API_ERROR = f"HTTP {resp.status_code} from Football-Data API: {preview}"
+            resp.raise_for_status()
         return resp.json()
     except requests.RequestException as e:
         log.error("Football-Data.org request failed: %s", e)
+        if _LAST_API_ERROR is None:
+            _LAST_API_ERROR = f"Request failed: {e}"
         return None
+
+
+def get_last_api_error() -> str | None:
+    return _LAST_API_ERROR
 
 
 def _safe_int(val) -> int:
