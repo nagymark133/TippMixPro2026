@@ -220,27 +220,30 @@ if preds:
         
         carousel_html = '<div class="tips-carousel-wrapper"><div class="tips-carousel">'
         for rec in high_conf_tips:
+            # Color logic for prob inside inline style
+            prob_color = "var(--success)" # >= 90% typically success color
+            
             carousel_html += f"""
             <div class="tip-slide">
                 <div class="ai-recommendation-card">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem;">
-                        <div style="flex:1;">
-                            <div style="color:var(--accent); font-size:0.75rem; font-weight:800; text-transform:uppercase; letter-spacing:1px; margin-bottom:0.3rem;">
+                        <div style="flex:1; min-width: 0;">
+                            <div style="color:var(--accent); font-size:0.75rem; font-weight:800; text-transform:uppercase; letter-spacing:1px; margin-bottom:0.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
                                 ✨ {rec.get('market', 'Ismeretlen Piac')}
                             </div>
-                            <div style="color:var(--text-main); font-size:1.2rem; font-weight:800; line-height:1.2;">
+                            <div style="color:var(--text-main); font-size:1.1rem; font-weight:800; line-height:1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
                                 {rec.get('confidence_emoji', '🎯')} {rec.get('selection', 'Tipp')}
                             </div>
                         </div>
-                        <div style="text-align:right; margin-left:0.5rem;">
-                            <div style="color:var(--success); font-size:1.8rem; font-weight:800; line-height:1;">
+                        <div style="text-align:right; margin-left:1rem; flex-shrink: 0;">
+                            <div style="color:{prob_color}; font-size:1.8rem; font-weight:800; line-height:1;">
                                 {rec.get('prob', 0):.1%}
                             </div>
                         </div>
                     </div>
-                    <div style="background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); padding:1rem; border-radius:12px; margin-top:auto;">
-                        <div style="color:var(--text-muted); font-size:0.8rem; font-weight:700; margin-bottom:0.3rem;">Érvelés:</div>
-                        <div style="color:var(--text-main); font-size:0.85rem; line-height:1.4;">
+                    <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.08); padding:0.8rem; border-radius:12px; margin-top:auto;">
+                        <div style="color:var(--text-muted); font-size:0.75rem; font-weight:700; margin-bottom:0.4rem; text-transform:uppercase; letter-spacing:0.5px;">Érvelés:</div>
+                        <div style="color:rgba(248, 250, 252, 0.9); font-size:0.85rem; line-height:1.5;">
                             {rec.get('reasoning', 'Nincs extra indoklás.')}
                         </div>
                     </div>
