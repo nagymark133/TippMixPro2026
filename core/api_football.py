@@ -9,6 +9,7 @@ Odds are NOT available on the free tier — the app falls back to DB-cached valu
 import logging
 import json
 import time
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 import requests
@@ -51,13 +52,25 @@ _STATUS_MAP = {
 # ---------------------------------------------------------------------------
 # Rate-limit state (Football-Data.org: 10 req/min on free tier)
 # ---------------------------------------------------------------------------
+# Rate-limit state file: prefer DATA_DIR, fall back to /tmp for read-only filesystems (e.g. Streamlit Cloud)
 _RATELIMIT_FILE = DATA_DIR / "ratelimit.json"
+
+def _ratelimit_file():
+    if _RATELIMIT_FILE.parent.exists():
+        try:
+            _RATELIMIT_FILE.parent.mkdir(parents=True, exist_ok=True)
+            return _RATELIMIT_FILE
+        except OSError:
+            pass
+    import tempfile
+    return Path(tempfile.gettempdir()) / "tippmix_ratelimit.json"
 
 
 def get_rate_limit_info() -> dict:
-    if _RATELIMIT_FILE.exists():
+    rl_file = _ratelimit_file()
+    if rl_file.exists():
         try:
-            with open(_RATELIMIT_FILE, "r", encoding="utf-8") as f:
+            with open(rl_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             stored_date = data.get("date")
             if stored_date == datetime.now(timezone.utc).strftime("%Y-%m-%d"):
@@ -78,7 +91,7 @@ def _update_rate_limit(remaining: str | None, limit: str | None):
             "remaining": rem,
             "limit": lim,
         }
-        with open(_RATELIMIT_FILE, "w", encoding="utf-8") as f:
+        with open(_ratelimit_file(), "w", encoding="utf-8") as f:
             json.dump(data, f)
     except Exception:
         pass
@@ -95,6 +108,11 @@ def _request(endpoint: str, params: dict | None = None) -> dict | None:
     if not FOOTBALL_DATA_KEY:
         log.warning("FOOTBALL_DATA_KEY not configured")
         _LAST_API_ERROR = "FOOTBALL_DATA_KEY is missing"
+        return None
+
+    if FOOTBALL_DATA_KEY.startswith("your_") or FOOTBALL_DATA_KEY.endswith("_here"):
+        log.warning("FOOTBALL_DATA_KEY appears to be a placeholder — skipping API call")
+        _LAST_API_ERROR = "FOOTBALL_DATA_KEY is a placeholder value, please set a real key"
         return None
 
     url = f"{FOOTBALL_DATA_BASE}/{endpoint.lstrip('/')}"
