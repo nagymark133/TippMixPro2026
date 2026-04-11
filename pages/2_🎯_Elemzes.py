@@ -649,7 +649,23 @@ if preds:
 
         col_copy, col_clear = st.columns(2)
         with col_copy:
-            st.code(clipboard_text, language=None)
+            st.code(clipboard_text, language=None, line_numbers=False, container_width=True)
+            st.markdown(
+                """
+                <style>
+                .element-container pre {
+                    font-size: 1.08rem !important;
+                    font-family: 'Fira Mono', 'Consolas', 'Menlo', monospace !important;
+                    white-space: pre-wrap !important;
+                    word-break: break-word !important;
+                    overflow-x: auto !important;
+                    min-width: 340px;
+                    max-width: 100vw;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
             st.caption("⬆️ Másold ki a fenti szöveget a TippMixPro oldalon való megjátszáshoz!")
         with col_clear:
             if st.button("🗑️ Kosár ürítése", type="secondary"):
