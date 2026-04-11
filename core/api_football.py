@@ -29,6 +29,7 @@ _LAST_API_ERROR: str | None = None
 _REQUEST_TIMEOUT_SECONDS = 25
 _MAX_REQUEST_ATTEMPTS = 3
 _RETRY_BACKOFF_SECONDS = 1.5
+_FALLBACK_COMPETITION_IDS = [2001, 2014, 2019, 2021, 2015, 2002, 2017, 2013]
 
 # ---------------------------------------------------------------------------
 # Status mapping: Football-Data.org -> internal short codes (FT, NS, …)
@@ -161,6 +162,55 @@ def _normalize_form(form_str: str | None) -> str:
     return "".join(c for c in form_str.split(",") if c in ("W", "D", "L"))
 
 
+def _upsert_match_item(item: dict, default_date: str) -> bool:
+    competition = item.get("competition", {})
+    home = item.get("homeTeam", {})
+    away = item.get("awayTeam", {})
+
+    competition_id = competition.get("id")
+    home_id = home.get("id")
+    away_id = away.get("id")
+    match_id = item.get("id")
+
+    if not competition_id or not home_id or not away_id or not match_id:
+        return False
+
+    area = item.get("area", competition.get("area", {}))
+    score = item.get("score", {})
+    full_time = score.get("fullTime", {})
+    status = _STATUS_MAP.get(item.get("status", ""), "NS")
+
+    db.upsert_league(
+        competition_id,
+        competition.get("name", ""),
+        area.get("name", ""),
+        competition.get("emblem", ""),
+        item.get("season", {}).get("id"),
+    )
+    db.upsert_team(home_id, home.get("name", ""), home.get("crest", ""), competition_id)
+    db.upsert_team(away_id, away.get("name", ""), away.get("crest", ""), competition_id)
+
+    home_goals = _safe_int(full_time.get("home")) if status == "FT" else None
+    away_goals = _safe_int(full_time.get("away")) if status == "FT" else None
+
+    referees = item.get("referees", [])
+    referee = referees[0].get("name") if referees else None
+
+    db.upsert_fixture(
+        api_id=match_id,
+        league_api_id=competition_id,
+        home_team_api_id=home_id,
+        away_team_api_id=away_id,
+        date=item.get("utcDate", default_date),
+        status=status,
+        home_goals=home_goals,
+        away_goals=away_goals,
+        referee=referee,
+        venue=item.get("venue"),
+    )
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Fixtures / Matches
 # ---------------------------------------------------------------------------
@@ -168,46 +218,33 @@ def _normalize_form(form_str: str | None) -> str:
 def fetch_fixtures_by_date(date_str: str) -> list[dict]:
     """Fetch fixtures for a date (YYYY-MM-DD) and persist to DB."""
     data = _request("matches", {"dateFrom": date_str, "dateTo": date_str})
-    if not data or not data.get("matches"):
+    matches = list(data.get("matches", [])) if data else []
+
+    if not matches:
+        log.warning("Global /matches endpoint returned empty. Trying competition fallback list.")
+        for competition_id in _FALLBACK_COMPETITION_IDS:
+            fallback_data = _request(
+                f"competitions/{competition_id}/matches",
+                {"dateFrom": date_str, "dateTo": date_str},
+            )
+            if not fallback_data:
+                continue
+            matches.extend(fallback_data.get("matches", []))
+
+    if not matches:
         return db.get_fixtures_by_date(date_str)
 
-    for item in data["matches"]:
-        competition = item.get("competition", {})
-        area = item.get("area", competition.get("area", {}))
-        home = item.get("homeTeam", {})
-        away = item.get("awayTeam", {})
-        score = item.get("score", {})
-        full_time = score.get("fullTime", {})
-        status = _STATUS_MAP.get(item.get("status", ""), "NS")
+    seen = set()
+    stored = 0
+    for item in matches:
+        match_id = item.get("id")
+        if not match_id or match_id in seen:
+            continue
+        seen.add(match_id)
+        if _upsert_match_item(item, date_str):
+            stored += 1
 
-        db.upsert_league(
-            competition["id"],
-            competition.get("name", ""),
-            area.get("name", ""),
-            competition.get("emblem", ""),
-            item.get("season", {}).get("id"),
-        )
-        db.upsert_team(home["id"], home.get("name", ""), home.get("crest", ""), competition["id"])
-        db.upsert_team(away["id"], away.get("name", ""), away.get("crest", ""), competition["id"])
-
-        home_goals = _safe_int(full_time.get("home")) if status == "FT" else None
-        away_goals = _safe_int(full_time.get("away")) if status == "FT" else None
-
-        referees = item.get("referees", [])
-        referee = referees[0].get("name") if referees else None
-
-        db.upsert_fixture(
-            api_id=item["id"],
-            league_api_id=competition["id"],
-            home_team_api_id=home["id"],
-            away_team_api_id=away["id"],
-            date=item.get("utcDate", date_str),
-            status=status,
-            home_goals=home_goals,
-            away_goals=away_goals,
-            referee=referee,
-            venue=item.get("venue"),
-        )
+    log.info("Fetched %s matches for %s (stored unique: %s)", len(matches), date_str, stored)
 
     return db.get_fixtures_by_date(date_str)
 
