@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import altair as alt
+import time
 from datetime import date, datetime
 
 from core.database import init_db, get_fixtures_by_date, get_all_leagues, get_team, get_latest_odds
@@ -41,10 +42,14 @@ if refresh:
         fixtures = fetch_fixtures_by_date(date_str)
     if fixtures:
         # Fetch odds for each fixture (first bookmaker only)
-        odds_progress = st.progress(0, text="Odds letöltése...")
-        for i, fix in enumerate(fixtures[:20]):  # limit to save API calls
+        # BIZTONSÁGI LIMIT (10 requests / perc az ingyenes fiókban) -> 8 meccset töltünk be 6.1s szünetekkel
+        limit_fixtures = min(len(fixtures), 8)
+        odds_progress = st.progress(0, text="Odds letöltése (Biztonsági limit miatt várakozás)...")
+        for i, fix in enumerate(fixtures[:limit_fixtures]):
+            if i > 0:
+                time.sleep(6.1)  # Szünet a "10 kerés/perc" flood kitiltás elkerülése végett
             fetch_odds_for_fixture(fix["api_id"])
-            odds_progress.progress((i + 1) / min(len(fixtures), 20), text=f"Odds: {i+1}/{min(len(fixtures), 20)}")
+            odds_progress.progress((i + 1) / limit_fixtures, text=f"Odds letöltése: {i+1}/{limit_fixtures}")
         odds_progress.empty()
     st.success(f"✅ {len(fixtures)} meccs frissítve!")
     # Update rate limit display
