@@ -16,7 +16,7 @@ from core.betting_tips import generate_betting_tips
 init_db()
 
 st.markdown("# 🎯 Meccs Elemzés")
-st.caption("ML predikció • AI összefoglaló • Value Bet detektálás")
+st.caption("ML predikció · AI összefoglaló · Value Bet detektálás")
 
 # ---------------------------------------------------------------------------
 # Select match
@@ -116,23 +116,21 @@ away_stats = st.session_state.get(f"away_stats_{selected_fix_id}")
 odds = st.session_state.get(f"odds_{selected_fix_id}") or get_latest_odds(selected_fix_id)
 
 if preds:
-    st.divider()
-
     # --- Match Header ---
-    st.markdown(f"""
-<div style="text-align:center; padding:1rem 0;">
-    <span style="font-size:1.4rem; font-weight:600;">{home_team.get('name', '?')}</span>
-    <span style="color:#64748b; font-size:1.2rem; margin: 0 1rem;">vs</span>
-    <span style="font-size:1.4rem; font-weight:600;">{away_team.get('name', '?')}</span>
-</div>
-    """, unsafe_allow_html=True)
+    home_crest = home_team.get('crest', '')
+    away_crest = away_team.get('crest', '')
+    home_logo_html = f'<img class="team-logo-lg" src="{escape(home_crest)}" alt="">' if home_crest else '<div class="team-logo-lg" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem;">🏠</div>'
+    away_logo_html = f'<img class="team-logo-lg" src="{escape(away_crest)}" alt="">' if away_crest else '<div class="team-logo-lg" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem;">✈️</div>'
+    st.markdown(f'<div class="analysis-header">'
+        f'<div class="ah-team">{home_logo_html}<div class="ah-team-name">{escape(home_team.get("name", "?"))}</div></div>'
+        f'<div class="ah-vs">VS</div>'
+        f'<div class="ah-team">{away_logo_html}<div class="ah-team-name">{escape(away_team.get("name", "?"))}</div></div>'
+        f'</div>', unsafe_allow_html=True)
 
     # =====================================================================
     # CONFIDENCE METER — 1X2
     # =====================================================================
     st.markdown('<p class="section-header">📊 Confidence Meter — 1X2</p>', unsafe_allow_html=True)
-
-    col1, col2, col3 = st.columns(3)
 
     home_pct = preds.get("home_prob", 0)
     draw_pct = preds.get("draw_prob", 0)
@@ -143,32 +141,24 @@ if preds:
         key=lambda x: x[1],
     )
 
-    with col1:
-        st.markdown(f"""
-<div style="text-align:center;">
-    <div style="font-size:0.85rem; color:#22c55e; font-weight:600;">🏠 HAZAI (1)</div>
-    <div style="font-size:2rem; font-weight:700; color:#22c55e;">{home_pct:.1%}</div>
-</div>
-        """, unsafe_allow_html=True)
-        st.progress(home_pct)
-
-    with col2:
-        st.markdown(f"""
-<div style="text-align:center;">
-    <div style="font-size:0.85rem; color:#f59e0b; font-weight:600;">🤝 DÖNTETLEN (X)</div>
-    <div style="font-size:2rem; font-weight:700; color:#f59e0b;">{draw_pct:.1%}</div>
-</div>
-        """, unsafe_allow_html=True)
-        st.progress(draw_pct)
-
-    with col3:
-        st.markdown(f"""
-<div style="text-align:center;">
-    <div style="font-size:0.85rem; color:#3b82f6; font-weight:600;">✈️ VENDÉG (2)</div>
-    <div style="font-size:2rem; font-weight:700; color:#3b82f6;">{away_pct:.1%}</div>
-</div>
-        """, unsafe_allow_html=True)
-        st.progress(away_pct)
+    col1, col2, col3 = st.columns(3)
+    for col, (label, emoji, pct, color) in zip(
+        [col1, col2, col3],
+        [
+            ("HAZAI (1)", "🏠", home_pct, "#34d399"),
+            ("DÖNTETLEN (X)", "🤝", draw_pct, "#fbbf24"),
+            ("VENDÉG (2)", "✈️", away_pct, "#60a5fa"),
+        ],
+    ):
+        with col:
+            st.markdown(
+                f'<div class="conf-meter">'
+                f'<div class="conf-label" style="color:{color};">{emoji} {label}</div>'
+                f'<div class="conf-value" style="color:{color};">{pct:.1%}</div>'
+                f'<div class="conf-bar-track"><div class="conf-bar-fill" style="width:{pct*100:.0f}%;background:{color};"></div></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
     st.info(f"🏆 Legvalószínűbb: **{best_1x2[0]}** ({best_1x2[1]:.1%})")
 
@@ -176,27 +166,26 @@ if preds:
     # Over/Under 2.5
     # =====================================================================
     st.markdown('<p class="section-header">⚽ Gólok — 2.5 Felett/Alatt</p>', unsafe_allow_html=True)
-    col_o, col_u = st.columns(2)
     over_pct = preds.get("over25_prob", 0.5)
     under_pct = preds.get("under25_prob", 0.5)
 
-    with col_o:
-        st.markdown(f"""
-<div style="text-align:center;">
-    <div style="font-size:0.85rem; color:#a78bfa; font-weight:600;">📈 2.5 FELETT</div>
-    <div style="font-size:1.8rem; font-weight:700; color:#a78bfa;">{over_pct:.1%}</div>
-</div>
-        """, unsafe_allow_html=True)
-        st.progress(over_pct)
-
-    with col_u:
-        st.markdown(f"""
-<div style="text-align:center;">
-    <div style="font-size:0.85rem; color:#fb923c; font-weight:600;">📉 2.5 ALATT</div>
-    <div style="font-size:1.8rem; font-weight:700; color:#fb923c;">{under_pct:.1%}</div>
-</div>
-        """, unsafe_allow_html=True)
-        st.progress(under_pct)
+    col_o, col_u = st.columns(2)
+    for col, (label, emoji, pct, color) in zip(
+        [col_o, col_u],
+        [
+            ("2.5 FELETT", "📈", over_pct, "#a78bfa"),
+            ("2.5 ALATT", "📉", under_pct, "#fb923c"),
+        ],
+    ):
+        with col:
+            st.markdown(
+                f'<div class="conf-meter">'
+                f'<div class="conf-label" style="color:{color};">{emoji} {label}</div>'
+                f'<div class="conf-value" style="color:{color};">{pct:.1%}</div>'
+                f'<div class="conf-bar-track"><div class="conf-bar-fill" style="width:{pct*100:.0f}%;background:{color};"></div></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
     # =====================================================================
     # BETTING TIPS — ALL MARKETS
@@ -312,32 +301,28 @@ if preds:
 
                     # Color based on confidence
                     if tip["prob"] >= 0.70:
-                        bar_color = "#22c55e"
+                        bar_color = "#34d399"
                     elif tip["prob"] >= 0.55:
-                        bar_color = "#3b82f6"
+                        bar_color = "#60a5fa"
                     elif tip["prob"] >= 0.40:
-                        bar_color = "#f59e0b"
+                        bar_color = "#fbbf24"
                     else:
-                        bar_color = "#ef4444"
+                        bar_color = "#f87171"
 
-                    st.markdown(f"""
-<div style="background:#1e293b; border:1px solid #334155; border-radius:10px; padding:0.8rem 1rem; margin-bottom:0.5rem;">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
-        <div style="flex:1;">
-            <div style="font-size:0.75rem; color:#64748b; margin-bottom:0.2rem;">{tip['market']}</div>
-            <div style="font-weight:600; color:#f8fafc; font-size:1rem;">{emoji} {tip['selection']}</div>
-        </div>
-        <div style="text-align:right;">
-            <div style="font-size:1.4rem; font-weight:700; color:{bar_color};">{prob_pct}</div>
-            <div style="font-size:0.7rem; color:#94a3b8;">{conf}</div>
-        </div>
-    </div>
-    <div style="background:#0f172a; border-radius:6px; height:6px; overflow:hidden;">
-        <div style="background:{bar_color}; height:100%; width:{tip['prob']*100:.0f}%; border-radius:6px;"></div>
-    </div>
-    <div style="font-size:0.75rem; color:#94a3b8; margin-top:0.3rem;">{tip['reasoning']}</div>
-</div>
-                    """, unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="tip-card">'
+                        f'<div class="tip-header">'
+                        f'<div><div class="tip-market">{escape(tip["market"])}</div>'
+                        f'<div class="tip-selection">{escape(emoji)} {escape(tip["selection"])}</div></div>'
+                        f'<div style="text-align:right;">'
+                        f'<div class="tip-prob" style="color:{bar_color};">{prob_pct}</div>'
+                        f'<div class="tip-conf">{escape(conf)}</div></div>'
+                        f'</div>'
+                        f'<div class="tip-bar-track"><div class="tip-bar-fill" style="width:{tip["prob"]*100:.0f}%;background:{bar_color};"></div></div>'
+                        f'<div class="tip-reasoning">{escape(tip["reasoning"])}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
 
     # =====================================================================
     # VALUE BET DETECTOR
@@ -348,32 +333,30 @@ if preds:
 
         if value_bets:
             for vb in value_bets:
-                st.markdown(f"""
-<div style="background:linear-gradient(135deg, #22c55e15, #22c55e08);
-            border:1px solid #22c55e55; border-radius:10px; padding:1rem; margin-bottom:0.6rem;">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div>
-            <span style="font-size:1.1rem; font-weight:600; color:#22c55e;">
-                ⚡ VALUE BET: {vb['selection']}
-            </span><br/>
-            <span style="color:#94a3b8; font-size:0.85rem;">
-                Modell: {vb['ml_prob']:.1%} vs Odds implied: {vb['implied_prob']:.1%}
-                &nbsp;|&nbsp; Edge: +{vb['edge']:.1%}
-            </span>
-        </div>
-        <div style="text-align:right;">
-            <div style="font-size:1.5rem; font-weight:700; color:#22c55e;">{vb['odds']:.2f}</div>
-            <div style="font-size:0.75rem; color:#94a3b8;">EV: {vb['expected_value']:+.3f}</div>
-        </div>
-    </div>
-</div>
-                """, unsafe_allow_html=True)
+                st.markdown(
+                    f'<div class="value-bet-card">'
+                    f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                    f'<div>'
+                    f'<div style="font-size:1.05rem;font-weight:800;color:var(--success);margin-bottom:0.3rem;">'
+                    f'⚡ VALUE BET: {escape(vb["selection"])}</div>'
+                    f'<div style="color:var(--text-muted);font-size:0.8rem;">'
+                    f'Modell: {vb["ml_prob"]:.1%} vs Implied: {vb["implied_prob"]:.1%} · Edge: +{vb["edge"]:.1%}</div>'
+                    f'</div>'
+                    f'<div style="text-align:right;">'
+                    f'<div style="font-size:1.5rem;font-weight:900;color:var(--success);font-variant-numeric:tabular-nums;">{vb["odds"]:.2f}</div>'
+                    f'<div style="font-size:0.7rem;color:var(--text-muted);">EV: {vb["expected_value"]:+.3f}</div>'
+                    f'</div>'
+                    f'</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
         else:
-            st.markdown("""
-<div style="background:#1e293b; border:1px solid #334155; border-radius:10px; padding:1rem; text-align:center;">
-    <span style="color:#64748b;">Nincs value bet ennél a meccsnél. A modell és az odds közel vannak egymáshoz.</span>
-</div>
-            """, unsafe_allow_html=True)
+            st.markdown(
+                '<div class="modern-card" style="text-align:center;">'
+                '<span style="color:var(--text-muted);">Nincs value bet ennél a meccsnél. A modell és az odds közel vannak egymáshoz.</span>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
     else:
         st.warning("Nincs odds adat. Frissítsd az adatokat a **📊 Napi Meccsek** oldalon!")
         value_bets = []
@@ -443,18 +426,19 @@ if preds:
     with st.spinner("🤖 AI elemzés generálása..."):
         analysis_text = generate_analysis(ai_stats)
 
-    st.markdown(f"""
-<div style="background:linear-gradient(135deg, #1e293b, #0f172a);
-            border:1px solid #334155; border-radius:12px; padding:1.2rem;">
-    <div style="font-size:0.8rem; color:#64748b; margin-bottom:0.5rem;">🤖 AI Összefoglaló</div>
-    <div style="color:#e2e8f0; line-height:1.6;">{analysis_text}</div>
-</div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="ai-summary-card">'
+        f'<div class="ai-badge">🤖 AI Összefoglaló</div>'
+        f'<div class="ai-text">{analysis_text}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 else:
-    st.markdown("""
-<div style="text-align:center; padding:3rem 0; color:#64748b;">
-    <div style="font-size:3rem;">🎯</div>
-    <p>Válassz egy meccset és kattints az <strong>Elemzés indítása</strong> gombra!</p>
-</div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        '<div class="empty-state">'
+        '<div class="empty-icon">🎯</div>'
+        '<div class="empty-text">Válassz egy meccset és kattints az <strong>Elemzés indítása</strong> gombra!</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
