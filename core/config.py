@@ -77,9 +77,6 @@ FOOTBALL_DATA_HEADERS = {
     "X-Auth-Token": FOOTBALL_DATA_KEY,
 }
 
-# Legacy alias kept for any remaining references
-API_FOOTBALL_KEY = FOOTBALL_DATA_KEY
-
 # Zhipu AI (GLM)
 ZHIPU_API_KEY = get_secret("ZHIPU_API_KEY")
 ZHIPU_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
