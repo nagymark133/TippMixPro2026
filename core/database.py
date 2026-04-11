@@ -4,15 +4,18 @@ from datetime import datetime, timezone
 
 from core.config import DB_PATH, DEFAULT_INITIAL_BALANCE
 
+SQLITE_CONNECT_TIMEOUT_SECONDS = 30
+SQLITE_BUSY_TIMEOUT_MS = 30000
+
 # ---------------------------------------------------------------------------
 # Connection helper
 # ---------------------------------------------------------------------------
 
 @contextmanager
 def get_db():
-    conn = sqlite3.connect(str(DB_PATH), timeout=10)
+    conn = sqlite3.connect(str(DB_PATH), timeout=SQLITE_CONNECT_TIMEOUT_SECONDS)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
     conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
@@ -135,6 +138,8 @@ CREATE TABLE IF NOT EXISTS bankroll (
 
 def init_db():
     with get_db() as conn:
+        # WAL is persistent per database file; configure it during initialization only.
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(_SCHEMA)
         # Seed bankroll if empty
         row = conn.execute("SELECT COUNT(*) as cnt FROM bankroll").fetchone()
