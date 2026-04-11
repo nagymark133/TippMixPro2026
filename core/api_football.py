@@ -6,7 +6,7 @@ import requests
 from core.config import (
     API_FOOTBALL_BASE,
     API_FOOTBALL_HEADERS,
-    RAPIDAPI_KEY,
+    API_FOOTBALL_KEY,
     CACHE_TTL_HOURS,
 )
 from core import database as db
@@ -30,16 +30,18 @@ def get_rate_limit_info():
 
 def _request(endpoint: str, params: dict | None = None) -> dict | None:
     global _rate_limit_remaining, _rate_limit_limit
-    if not RAPIDAPI_KEY:
-        log.warning("RAPIDAPI_KEY not configured")
+    if not API_FOOTBALL_KEY:
+        log.warning("API_FOOTBALL_KEY not configured")
         return None
 
     url = f"{API_FOOTBALL_BASE}/{endpoint.lstrip('/')}"
     try:
         resp = requests.get(url, headers=API_FOOTBALL_HEADERS, params=params, timeout=15)
+        
         # Track rate limits from response headers
         _rate_limit_remaining = _try_int(resp.headers.get("x-ratelimit-requests-remaining"))
         _rate_limit_limit = _try_int(resp.headers.get("x-ratelimit-requests-limit"))
+            
         resp.raise_for_status()
         data = resp.json()
         if data.get("errors"):

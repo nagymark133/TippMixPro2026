@@ -6,7 +6,7 @@ from datetime import date, datetime
 from core.database import init_db, get_fixtures_by_date, get_all_leagues, get_team, get_latest_odds
 from core.api_football import fetch_fixtures_by_date, fetch_odds_for_fixture, get_rate_limit_info
 from core.odds_tracker import detect_dropping_odds, get_odds_history_df
-from core.config import RAPIDAPI_KEY
+from core.config import API_FOOTBALL_KEY
 
 init_db()
 
@@ -22,13 +22,13 @@ with col_date:
 with col_btn:
     st.markdown("<br/>", unsafe_allow_html=True)
     refresh = st.button("🔄 Adatok frissítése", type="primary", use_container_width=True,
-                        disabled=not RAPIDAPI_KEY)
+                        disabled=not API_FOOTBALL_KEY)
 with col_quota:
     st.markdown("<br/>", unsafe_allow_html=True)
     rl = get_rate_limit_info()
     if rl["remaining"] is not None:
         st.info(f"API kvóta: **{rl['remaining']}** / {rl['limit']}")
-    elif not RAPIDAPI_KEY:
+    elif not API_FOOTBALL_KEY:
         st.error("⚠️ Nincs API kulcs beállítva. Streamliten add meg a Secrets-ben, lokálisan pedig a .env fájlban!")
 
 date_str = selected_date.strftime("%Y-%m-%d")
