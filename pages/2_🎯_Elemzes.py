@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
+from html import escape
 
 from core.database import (
     init_db, get_fixtures_by_date, get_team, get_latest_odds,
@@ -218,39 +219,43 @@ if preds:
         
         st.markdown('<p class="section-header">🤖 AI Kiemelt Napi Ajánlatok (87%+)</p>', unsafe_allow_html=True)
         
-        carousel_html = '<div class="tips-carousel-wrapper"><div class="tips-carousel">'
+        carousel_slides = []
         for rec in high_conf_tips:
-            # Color logic for prob inside inline style
-            prob_color = "var(--success)" # >= 90% typically success color
-            
-            carousel_html += f"""
-            <div class="tip-slide">
-                <div class="ai-recommendation-card">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem;">
-                        <div style="flex:1; min-width: 0;">
-                            <div style="color:var(--accent); font-size:0.75rem; font-weight:800; text-transform:uppercase; letter-spacing:1px; margin-bottom:0.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                ✨ {rec.get('market', 'Ismeretlen Piac')}
-                            </div>
-                            <div style="color:var(--text-main); font-size:1.1rem; font-weight:800; line-height:1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">
-                                {rec.get('confidence_emoji', '🎯')} {rec.get('selection', 'Tipp')}
-                            </div>
-                        </div>
-                        <div style="text-align:right; margin-left:1rem; flex-shrink: 0;">
-                            <div style="color:{prob_color}; font-size:1.8rem; font-weight:800; line-height:1;">
-                                {rec.get('prob', 0):.1%}
-                            </div>
-                        </div>
-                    </div>
-                    <div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.08); padding:0.8rem; border-radius:12px; margin-top:auto;">
-                        <div style="color:var(--text-muted); font-size:0.75rem; font-weight:700; margin-bottom:0.4rem; text-transform:uppercase; letter-spacing:0.5px;">Érvelés:</div>
-                        <div style="color:rgba(248, 250, 252, 0.9); font-size:0.85rem; line-height:1.5;">
-                            {rec.get('reasoning', 'Nincs extra indoklás.')}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            """
-        carousel_html += '</div></div>'
+            market = escape(str(rec.get("market", "Ismeretlen Piac")))
+            selection = escape(str(rec.get("selection", "Tipp")))
+            confidence_emoji = escape(str(rec.get("confidence_emoji", "🎯")))
+            reasoning = escape(str(rec.get("reasoning", "Nincs extra indoklás.")))
+            prob = rec.get("prob", 0)
+            carousel_slides.append(
+                (
+                    f'<div class="tip-slide">'
+                    f'<div class="ai-recommendation-card">'
+                    f'<div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:1rem;">'
+                    f'<div style="flex:1; min-width:0;">'
+                    f'<div style="color:var(--accent); font-size:0.75rem; font-weight:800; text-transform:uppercase; letter-spacing:1px; margin-bottom:0.3rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">'
+                    f'✨ {market}'
+                    f'</div>'
+                    f'<div style="color:var(--text-main); font-size:1.1rem; font-weight:800; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;">'
+                    f'{confidence_emoji} {selection}'
+                    f'</div>'
+                    f'</div>'
+                    f'<div style="text-align:right; margin-left:1rem; flex-shrink:0;">'
+                    f'<div style="color:var(--success); font-size:1.8rem; font-weight:800; line-height:1;">'
+                    f'{prob:.1%}'
+                    f'</div>'
+                    f'</div>'
+                    f'</div>'
+                    f'<div style="background:rgba(0,0,0,0.35); border:1px solid rgba(255,255,255,0.08); padding:0.8rem; border-radius:12px; margin-top:auto;">'
+                    f'<div style="color:var(--text-muted); font-size:0.75rem; font-weight:700; margin-bottom:0.4rem; text-transform:uppercase; letter-spacing:0.5px;">Érvelés:</div>'
+                    f'<div style="color:rgba(248, 250, 252, 0.9); font-size:0.85rem; line-height:1.5;">'
+                    f'{reasoning}'
+                    f'</div>'
+                    f'</div>'
+                    f'</div>'
+                    f'</div>'
+                )
+            )
+        carousel_html = '<div class="tips-carousel-wrapper"><div class="tips-carousel">' + ''.join(carousel_slides) + '</div></div>'
         st.markdown(carousel_html, unsafe_allow_html=True)
 
     # Group tips by category
