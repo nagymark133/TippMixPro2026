@@ -7,7 +7,7 @@ from datetime import date, datetime
 from core.database import init_db, get_fixtures_by_date, get_all_leagues, get_team, get_latest_odds
 from core.api_football import fetch_fixtures_by_date, fetch_odds_for_fixture, get_rate_limit_info
 from core.odds_tracker import detect_dropping_odds, get_odds_history_df
-from core.config import API_FOOTBALL_KEY
+from core.config import FOOTBALL_DATA_KEY as API_FOOTBALL_KEY
 
 init_db()
 

@@ -24,14 +24,14 @@ cp .env.example .env
 ```
 
 ```env
-API_FOOTBALL_KEY=your_api_football_key_here
+FOOTBALL_DATA_KEY=your_football_data_org_key_here
 ZHIPU_API_KEY=your_zhipu_api_key_here
 ```
 
 Streamlit Community Cloudon ne `.env` fájlt tölts fel, hanem az app `Secrets` felületén add meg ugyanezeket a kulcsokat:
 
 ```toml
-API_FOOTBALL_KEY = "your_api_football_key_here"
+FOOTBALL_DATA_KEY = "your_football_data_org_key_here"
 ZHIPU_API_KEY = "your_zhipu_api_key_here"
 ```
 
@@ -39,11 +39,11 @@ Szekciós TOML formátum is támogatott, például:
 
 ```toml
 [api]
-API_FOOTBALL_KEY = "your_api_football_key_here"
+FOOTBALL_DATA_KEY = "your_football_data_org_key_here"
 ZHIPU_API_KEY = "your_zhipu_api_key_here"
 ```
 
-- **API-Football**: Regisztrálj a [api-football.com](https://www.api-football.com/) oldalon (free tier: 100 request/nap)
+- **Football-Data.org**: Regisztrálj a [football-data.org](https://www.football-data.org/) oldalon (free tier: 10 request/perc, 12 liga)
 - **Zhipu AI**: Regisztrálj a [open.bigmodel.cn](https://open.bigmodel.cn/) oldalon
 
 ### 3. Indítás
@@ -71,7 +71,7 @@ pages/                          # Streamlit multi-page navigation
 core/
   config.py                     # Konfiguráció (Streamlit Secrets + .env fallback)
   database.py                   # SQLite adatbázis réteg
-  api_football.py               # API-Football kliens (rate-limit aware)
+  api_football.py               # Football-Data.org kliens (rate-limit aware, 10 req/perc)
   zhipu_ai.py                   # Zhipu AI GLM kliens
   ml_model.py                   # XGBoost modellek (1X2 + O/U 2.5)
   value_bet.py                  # Value Bet detektálás
@@ -84,12 +84,13 @@ core/
 - **Adatbázis**: SQLite
 - **ML**: XGBoost + scikit-learn
 - **AI elemzés**: Zhipu AI (GLM-4-Flash)
-- **Sport adat**: API-Football v3
+- **Sport adat**: Football-Data.org API v4
 - **Vizualizáció**: Altair
 
 ## 📝 Megjegyzések
 
-- Az API-Football free tier 100 request/napot engedélyez. Az app intelligensen cache-el, hogy ne lépje túl a limitet.
+- Az API-Football free tier helyett **Football-Data.org** API-t használ az app (free tier: 10 request/perc, 12 liga). Az app cache-el a limit betartásához.
+- A Football-Data.org free tier **nem tartalmaz odds adatokat** — az odds megjelenítéshez korábban mentett, DB-cacheelt értékek látszanak.
 - Az ML modell az első ~30 lezárt meccs után kezd el tanulni. Addig egy egyszerű statisztikai fallback modell fut.
 - A Paper Trading virtuális — valódi pénzt nem kezel az alkalmazás.
 - Ez **nem pénzügyi tanács** — kizárólag szórakoztatási és oktatási célokra készült.

@@ -9,7 +9,7 @@ st.set_page_config(
 
 from core.database import init_db
 from core.api_football import get_rate_limit_info
-from core.config import API_FOOTBALL_KEY, ZHIPU_API_KEY
+from core.config import FOOTBALL_DATA_KEY, ZHIPU_API_KEY
 
 # ---------------------------------------------------------------------------
 # Initialise DB on first run

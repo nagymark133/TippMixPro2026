@@ -71,11 +71,14 @@ def get_secret(key: str, default: str = "") -> str:
 
     return default
 
-API_FOOTBALL_KEY = get_secret("API_FOOTBALL_KEY")
-API_FOOTBALL_BASE = "https://v3.football.api-sports.io"
-API_FOOTBALL_HEADERS = {
-    "x-apisports-key": API_FOOTBALL_KEY,
+FOOTBALL_DATA_KEY = get_secret("FOOTBALL_DATA_KEY")
+FOOTBALL_DATA_BASE = "https://api.football-data.org/v4"
+FOOTBALL_DATA_HEADERS = {
+    "X-Auth-Token": FOOTBALL_DATA_KEY,
 }
+
+# Legacy alias kept for any remaining references
+API_FOOTBALL_KEY = FOOTBALL_DATA_KEY
 
 # Zhipu AI (GLM)
 ZHIPU_API_KEY = get_secret("ZHIPU_API_KEY")

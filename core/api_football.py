@@ -1,14 +1,21 @@
+"""
+Football-Data.org API client (v4) — replacement for the former API-Football integration.
+https://www.football-data.org/documentation/quickstart
+
+Free tier: 10 requests/minute, 12 supported competitions.
+Odds are NOT available on the free tier — the app falls back to DB-cached values.
+"""
+
 import logging
 import json
-from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 import requests
 
 from core.config import (
-    API_FOOTBALL_BASE,
-    API_FOOTBALL_HEADERS,
-    API_FOOTBALL_KEY,
+    FOOTBALL_DATA_BASE,
+    FOOTBALL_DATA_HEADERS,
+    FOOTBALL_DATA_KEY,
     DATA_DIR,
     CACHE_TTL_HOURS,
 )
@@ -17,25 +24,40 @@ from core import database as db
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Rate-limit state
+# Status mapping: Football-Data.org -> internal short codes (FT, NS, …)
+# ---------------------------------------------------------------------------
+_STATUS_MAP = {
+    "FINISHED": "FT",
+    "SCHEDULED": "NS",
+    "TIMED": "NS",
+    "IN_PLAY": "1H",
+    "PAUSED": "HT",
+    "EXTRA_TIME": "ET",
+    "PENALTY_SHOOTOUT": "P",
+    "SUSPENDED": "SUSP",
+    "POSTPONED": "PST",
+    "CANCELLED": "CANC",
+    "AWARDED": "FT",
+}
+
+# ---------------------------------------------------------------------------
+# Rate-limit state (Football-Data.org: 10 req/min on free tier)
 # ---------------------------------------------------------------------------
 _RATELIMIT_FILE = DATA_DIR / "ratelimit.json"
 
+
 def get_rate_limit_info() -> dict:
-    # Try reading from disk
     if _RATELIMIT_FILE.exists():
         try:
             with open(_RATELIMIT_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            # Only use if from today
             stored_date = data.get("date")
             if stored_date == datetime.now(timezone.utc).strftime("%Y-%m-%d"):
                 return {"remaining": data.get("remaining"), "limit": data.get("limit")}
         except Exception:
             pass
-
-    # If no data for today yet, return safe fallback or None
     return {"remaining": None, "limit": None}
+
 
 def _update_rate_limit(remaining: str | None, limit: str | None):
     if remaining is None or limit is None:
@@ -46,137 +68,117 @@ def _update_rate_limit(remaining: str | None, limit: str | None):
         data = {
             "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
             "remaining": rem,
-            "limit": lim
+            "limit": lim,
         }
         with open(_RATELIMIT_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f)
     except Exception:
         pass
 
+
 # ---------------------------------------------------------------------------
 # Low-level request helper
 # ---------------------------------------------------------------------------
 
 def _request(endpoint: str, params: dict | None = None) -> dict | None:
-    if not API_FOOTBALL_KEY:
-        log.warning("API_FOOTBALL_KEY not configured")
+    if not FOOTBALL_DATA_KEY:
+        log.warning("FOOTBALL_DATA_KEY not configured")
         return None
 
-    url = f"{API_FOOTBALL_BASE}/{endpoint.lstrip('/')}"
+    url = f"{FOOTBALL_DATA_BASE}/{endpoint.lstrip('/')}"
     try:
-        resp = requests.get(url, headers=API_FOOTBALL_HEADERS, params=params, timeout=15)
-        
-        # Track rate limits from response headers
+        resp = requests.get(url, headers=FOOTBALL_DATA_HEADERS, params=params, timeout=15)
+        # Football-Data.org header: X-Requests-Available-Minute (remaining in current window)
         _update_rate_limit(
-            resp.headers.get("x-ratelimit-requests-remaining"),
-            resp.headers.get("x-ratelimit-requests-limit")
+            resp.headers.get("X-Requests-Available-Minute"),
+            "10",  # free tier: 10/min
         )
-            
         resp.raise_for_status()
-        data = resp.json()
-        if data.get("errors"):
-            log.error("API-Football error: %s", data["errors"])
-            return None
-        return data
+        return resp.json()
     except requests.RequestException as e:
-        log.error("API-Football request failed: %s", e)
+        log.error("Football-Data.org request failed: %s", e)
         return None
 
 
-def _try_int(val):
+def _safe_int(val) -> int:
     try:
-        return int(val)
+        return int(val) if val is not None else 0
     except (TypeError, ValueError):
-        return None
+        return 0
+
+
+def _normalize_form(form_str: str | None) -> str:
+    """Convert Football-Data.org comma-separated form (e.g. 'W,W,D,L,W') to compact string 'WWDLW'."""
+    if not form_str:
+        return ""
+    # Already compact format
+    if "," not in form_str:
+        return form_str
+    return "".join(c for c in form_str.split(",") if c in ("W", "D", "L"))
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Fixtures / Matches
 # ---------------------------------------------------------------------------
 
 def fetch_fixtures_by_date(date_str: str) -> list[dict]:
-    """Fetch fixtures for a date (YYYY-MM-DD) and persist to DB.
-    Returns list of fixture dicts from DB after upsert."""
-    data = _request("fixtures", {"date": date_str})
-    if not data or not data.get("response"):
+    """Fetch fixtures for a date (YYYY-MM-DD) and persist to DB."""
+    data = _request("matches", {"dateFrom": date_str, "dateTo": date_str})
+    if not data or not data.get("matches"):
         return db.get_fixtures_by_date(date_str)
 
-    for item in data["response"]:
-        fix = item["fixture"]
-        league = item["league"]
-        teams = item["teams"]
-        goals = item["goals"]
+    for item in data["matches"]:
+        competition = item.get("competition", {})
+        area = item.get("area", competition.get("area", {}))
+        home = item.get("homeTeam", {})
+        away = item.get("awayTeam", {})
+        score = item.get("score", {})
+        full_time = score.get("fullTime", {})
+        status = _STATUS_MAP.get(item.get("status", ""), "NS")
 
-        # Upsert league & teams
         db.upsert_league(
-            league["id"], league["name"], league.get("country", ""),
-            league.get("logo", ""), league.get("season"),
+            competition["id"],
+            competition.get("name", ""),
+            area.get("name", ""),
+            competition.get("emblem", ""),
+            item.get("season", {}).get("id"),
         )
-        db.upsert_team(teams["home"]["id"], teams["home"]["name"],
-                        teams["home"].get("logo", ""), league["id"])
-        db.upsert_team(teams["away"]["id"], teams["away"]["name"],
-                        teams["away"].get("logo", ""), league["id"])
+        db.upsert_team(home["id"], home.get("name", ""), home.get("crest", ""), competition["id"])
+        db.upsert_team(away["id"], away.get("name", ""), away.get("crest", ""), competition["id"])
+
+        home_goals = _safe_int(full_time.get("home")) if status == "FT" else None
+        away_goals = _safe_int(full_time.get("away")) if status == "FT" else None
+
+        referees = item.get("referees", [])
+        referee = referees[0].get("name") if referees else None
 
         db.upsert_fixture(
-            api_id=fix["id"],
-            league_api_id=league["id"],
-            home_team_api_id=teams["home"]["id"],
-            away_team_api_id=teams["away"]["id"],
-            date=fix["date"],
-            status=fix["status"]["short"],
-            home_goals=goals.get("home"),
-            away_goals=goals.get("away"),
-            referee=fix.get("referee"),
-            venue=fix.get("venue", {}).get("name") if fix.get("venue") else None,
+            api_id=item["id"],
+            league_api_id=competition["id"],
+            home_team_api_id=home["id"],
+            away_team_api_id=away["id"],
+            date=item.get("utcDate", date_str),
+            status=status,
+            home_goals=home_goals,
+            away_goals=away_goals,
+            referee=referee,
+            venue=item.get("venue"),
         )
 
     return db.get_fixtures_by_date(date_str)
 
 
 # ---------------------------------------------------------------------------
-# Odds
+# Odds — not available on the Football-Data.org free tier
 # ---------------------------------------------------------------------------
 
 def fetch_odds_for_fixture(fixture_api_id: int) -> dict | None:
-    """Fetch pre-match odds for a fixture and save a snapshot."""
-    data = _request("odds", {"fixture": fixture_api_id})
-    if not data or not data.get("response"):
-        return db.get_latest_odds(fixture_api_id)
-
-    for resp_item in data["response"]:
-        for bm in resp_item.get("bookmakers", []):
-            home_odd = draw_odd = away_odd = None
-            over25 = under25 = None
-
-            for bet in bm.get("bets", []):
-                if bet["name"] == "Match Winner":
-                    for v in bet["values"]:
-                        if v["value"] == "Home":
-                            home_odd = float(v["odd"])
-                        elif v["value"] == "Draw":
-                            draw_odd = float(v["odd"])
-                        elif v["value"] == "Away":
-                            away_odd = float(v["odd"])
-
-                elif bet["name"] in ("Over/Under 2.5", "Goals Over/Under"):
-                    for v in bet["values"]:
-                        if "Over" in str(v["value"]):
-                            over25 = float(v["odd"])
-                        elif "Under" in str(v["value"]):
-                            under25 = float(v["odd"])
-
-            if home_odd and draw_odd and away_odd:
-                db.insert_odds_snapshot(
-                    fixture_api_id, bm["name"],
-                    home_odd, draw_odd, away_odd, over25, under25,
-                )
-            break  # first bookmaker only to save API calls
-
+    """Football-Data.org free tier does not provide odds. Returns DB-cached value only."""
     return db.get_latest_odds(fixture_api_id)
 
 
 # ---------------------------------------------------------------------------
-# Team Statistics
+# Team Statistics (via competition standings)
 # ---------------------------------------------------------------------------
 
 def _is_cache_fresh(updated_at_iso: str | None) -> bool:
@@ -192,61 +194,52 @@ def _is_cache_fresh(updated_at_iso: str | None) -> bool:
 
 
 def fetch_team_statistics(team_api_id: int, league_api_id: int, season: int) -> dict | None:
-    """Fetch team season statistics. Uses cache if fresh.
-    Falls back to older seasons if the requested season is not available on the free plan."""
+    """Fetch team season statistics via competition standings.
+    Falls back to previous seasons if the current season is not yet available."""
     cached = db.get_team_stats(team_api_id, league_api_id, season)
     if cached and cached.get("matches_played", 0) > 0 and _is_cache_fresh(cached.get("updated_at")):
         return cached
 
-    # Try requested season first, then fall back to older seasons (free plan: 2022-2024)
-    seasons_to_try = [season]
-    if season > 2024:
-        seasons_to_try.extend([2024, 2023])
-
-    data = None
-    used_season = season
+    seasons_to_try = [season, season - 1, season - 2]
     for s in seasons_to_try:
-        data = _request("teams/statistics", {
-            "team": team_api_id,
-            "league": league_api_id,
-            "season": s,
-        })
-        if data and data.get("response"):
-            used_season = s
-            break
-        data = None
+        data = _request(f"competitions/{league_api_id}/standings", {"season": s})
+        if not data or not data.get("standings"):
+            continue
 
-    if not data or not data.get("response"):
-        return cached
+        total_row = home_row = away_row = None
+        for table in data["standings"]:
+            stype = table.get("type", "TOTAL")
+            for row in table.get("table", []):
+                if row.get("team", {}).get("id") == team_api_id:
+                    if stype == "TOTAL":
+                        total_row = row
+                    elif stype == "HOME":
+                        home_row = row
+                    elif stype == "AWAY":
+                        away_row = row
 
-    r = data["response"]
-    fixtures_data = r.get("fixtures", {})
-    goals_data = r.get("goals", {})
+        if not total_row:
+            continue
 
-    stats = {
-        "matches_played": _safe_int(fixtures_data.get("played", {}).get("total")),
-        "wins": _safe_int(fixtures_data.get("wins", {}).get("total")),
-        "draws": _safe_int(fixtures_data.get("draws", {}).get("total")),
-        "losses": _safe_int(fixtures_data.get("loses", {}).get("total")),
-        "goals_for": _safe_int(goals_data.get("for", {}).get("total", {}).get("total")),
-        "goals_against": _safe_int(goals_data.get("against", {}).get("total", {}).get("total")),
-        "home_wins": _safe_int(fixtures_data.get("wins", {}).get("home")),
-        "home_draws": _safe_int(fixtures_data.get("draws", {}).get("home")),
-        "home_losses": _safe_int(fixtures_data.get("loses", {}).get("home")),
-        "away_wins": _safe_int(fixtures_data.get("wins", {}).get("away")),
-        "away_draws": _safe_int(fixtures_data.get("draws", {}).get("away")),
-        "away_losses": _safe_int(fixtures_data.get("loses", {}).get("away")),
-        "form": r.get("form", ""),
-    }
-    db.upsert_team_season_stats(team_api_id, league_api_id, season, **stats)
-    return db.get_team_stats(team_api_id, league_api_id, season)
+        stats = {
+            "matches_played": _safe_int(total_row.get("playedGames")),
+            "wins": _safe_int(total_row.get("won")),
+            "draws": _safe_int(total_row.get("draw")),
+            "losses": _safe_int(total_row.get("lost")),
+            "goals_for": _safe_int(total_row.get("goalsFor")),
+            "goals_against": _safe_int(total_row.get("goalsAgainst")),
+            "home_wins": _safe_int(home_row.get("won")) if home_row else 0,
+            "home_draws": _safe_int(home_row.get("draw")) if home_row else 0,
+            "home_losses": _safe_int(home_row.get("lost")) if home_row else 0,
+            "away_wins": _safe_int(away_row.get("won")) if away_row else 0,
+            "away_draws": _safe_int(away_row.get("draw")) if away_row else 0,
+            "away_losses": _safe_int(away_row.get("lost")) if away_row else 0,
+            "form": _normalize_form(total_row.get("form", "")),
+        }
+        db.upsert_team_season_stats(team_api_id, league_api_id, season, **stats)
+        return db.get_team_stats(team_api_id, league_api_id, season)
 
-
-def _safe_int(val):
-    try:
-        return int(val) if val is not None else 0
-    except (TypeError, ValueError):
-        return 0
+    return cached
 
 
 # ---------------------------------------------------------------------------
@@ -254,76 +247,72 @@ def _safe_int(val):
 # ---------------------------------------------------------------------------
 
 def fetch_head_to_head(team1_api_id: int, team2_api_id: int, last: int = 10) -> list[dict]:
-    """Fetch last N head-to-head fixtures between two teams."""
-    data = _request("fixtures/headtohead", {
-        "h2h": f"{team1_api_id}-{team2_api_id}",
-        "last": last,
-    })
-    if not data or not data.get("response"):
+    """Fetch last N head-to-head finished matches between two teams."""
+    data = _request(f"teams/{team1_api_id}/matches", {"status": "FINISHED", "limit": 50})
+    if not data or not data.get("matches"):
         return []
 
     results = []
-    for item in data["response"]:
-        fix = item["fixture"]
-        teams = item["teams"]
-        goals = item["goals"]
+    for item in data["matches"]:
+        home = item.get("homeTeam", {})
+        away = item.get("awayTeam", {})
+        if home.get("id") != team2_api_id and away.get("id") != team2_api_id:
+            continue
+        score = item.get("score", {})
+        ft = score.get("fullTime", {})
         results.append({
-            "date": fix["date"],
-            "home_team": teams["home"]["name"],
-            "away_team": teams["away"]["name"],
-            "home_goals": goals.get("home"),
-            "away_goals": goals.get("away"),
-            "home_team_id": teams["home"]["id"],
-            "away_team_id": teams["away"]["id"],
+            "date": item.get("utcDate"),
+            "home_team": home.get("name", ""),
+            "away_team": away.get("name", ""),
+            "home_goals": ft.get("home"),
+            "away_goals": ft.get("away"),
+            "home_team_id": home["id"],
+            "away_team_id": away["id"],
         })
+        if len(results) >= last:
+            break
 
-        # Also persist to fixtures table
-        db.upsert_fixture(
-            api_id=fix["id"],
-            league_api_id=item["league"]["id"],
-            home_team_api_id=teams["home"]["id"],
-            away_team_api_id=teams["away"]["id"],
-            date=fix["date"],
-            status=fix["status"]["short"],
-            home_goals=goals.get("home"),
-            away_goals=goals.get("away"),
-            referee=fix.get("referee"),
-            venue=fix.get("venue", {}).get("name") if fix.get("venue") else None,
-        )
     return results
 
 
 # ---------------------------------------------------------------------------
-# Fetch finished results (for settlement)
+# Fetch finished results (for bet settlement)
 # ---------------------------------------------------------------------------
 
 def fetch_fixture_results(fixture_api_ids: list[int]) -> dict[int, dict]:
-    """Fetch current status of specific fixtures. Returns {api_id: {status, home_goals, away_goals}}."""
+    """Fetch current status of specific matches. Returns {api_id: {status, home_goals, away_goals}}."""
     results = {}
     for fid in fixture_api_ids:
-        data = _request("fixtures", {"id": fid})
-        if not data or not data.get("response"):
+        data = _request(f"matches/{fid}")
+        if not data:
             continue
-        item = data["response"][0]
-        fix = item["fixture"]
-        goals = item["goals"]
-        status = fix["status"]["short"]
+        score = data.get("score", {})
+        ft = score.get("fullTime", {})
+        raw_status = data.get("status", "")
+        status = _STATUS_MAP.get(raw_status, "NS")
+
         if status == "FT":
+            competition = data.get("competition", {})
+            home = data.get("homeTeam", {})
+            away = data.get("awayTeam", {})
+            referees = data.get("referees", [])
+            referee = referees[0].get("name") if referees else None
             db.upsert_fixture(
-                api_id=fix["id"],
-                league_api_id=item["league"]["id"],
-                home_team_api_id=item["teams"]["home"]["id"],
-                away_team_api_id=item["teams"]["away"]["id"],
-                date=fix["date"],
+                api_id=data["id"],
+                league_api_id=competition.get("id", 0),
+                home_team_api_id=home.get("id", 0),
+                away_team_api_id=away.get("id", 0),
+                date=data.get("utcDate", ""),
                 status=status,
-                home_goals=goals.get("home"),
-                away_goals=goals.get("away"),
-                referee=fix.get("referee"),
-                venue=fix.get("venue", {}).get("name") if fix.get("venue") else None,
+                home_goals=ft.get("home"),
+                away_goals=ft.get("away"),
+                referee=referee,
+                venue=data.get("venue"),
             )
-        results[fix["id"]] = {
+
+        results[fid] = {
             "status": status,
-            "home_goals": goals.get("home"),
-            "away_goals": goals.get("away"),
+            "home_goals": ft.get("home"),
+            "away_goals": ft.get("away"),
         }
     return results
