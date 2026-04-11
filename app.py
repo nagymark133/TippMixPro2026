@@ -9,7 +9,7 @@ st.set_page_config(
 
 from core.database import init_db
 from core.api_football import get_rate_limit_info
-from core.config import API_FOOTBALL_KEY, ZHIPU_API_KEY
+from core.config import RAPIDAPI_KEY, ZHIPU_API_KEY
 
 # ---------------------------------------------------------------------------
 # Initialise DB on first run
@@ -229,7 +229,7 @@ with st.sidebar:
     st.markdown('<p class="section-header">🔌 API Státusz</p>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
-        if API_FOOTBALL_KEY:
+        if RAPIDAPI_KEY:
             rl = get_rate_limit_info()
             if rl["remaining"] is not None:
                 st.metric("API Kvóta", f"{rl['remaining']}/{rl['limit']}")

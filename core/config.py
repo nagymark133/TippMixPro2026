@@ -71,10 +71,11 @@ def get_secret(key: str, default: str = "") -> str:
 
     return default
 
-API_FOOTBALL_KEY = get_secret("API_FOOTBALL_KEY")
-API_FOOTBALL_BASE = "https://v3.football.api-sports.io"
+RAPIDAPI_KEY = get_secret("RAPIDAPI_KEY", get_secret("API_FOOTBALL_KEY"))
+API_FOOTBALL_BASE = "https://api-football-v1.p.rapidapi.com/v3"
 API_FOOTBALL_HEADERS = {
-    "x-apisports-key": API_FOOTBALL_KEY,
+    "x-rapidapi-host": "api-football-v1.p.rapidapi.com",
+    "x-rapidapi-key": RAPIDAPI_KEY,
 }
 
 # Zhipu AI (GLM)
