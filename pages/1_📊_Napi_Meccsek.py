@@ -9,8 +9,10 @@ from core.database import init_db, get_fixtures_by_date, get_all_leagues, get_te
 from core.api_football import fetch_fixtures_by_date, fetch_odds_for_fixture, get_rate_limit_info, get_last_api_error
 from core.odds_tracker import detect_dropping_odds, get_odds_history_df
 from core.config import FOOTBALL_DATA_KEY
+from core.ui import inject_global_styles
 
 init_db()
+inject_global_styles()
 
 st.markdown("# 📊 Napi Meccsek")
 st.caption("Aznapi meccsek, odds és dropping odds figyelő")

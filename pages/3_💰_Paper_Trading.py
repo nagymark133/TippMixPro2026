@@ -9,8 +9,10 @@ from core.database import (
 )
 from core.api_football import fetch_fixture_results
 from core.config import DEFAULT_INITIAL_BALANCE
+from core.ui import inject_global_styles
 
 init_db()
+inject_global_styles()
 
 st.markdown("# 💰 Paper Trading")
 st.caption("Virtuális bankroll kezelés és tippek követése")

@@ -12,8 +12,10 @@ from core.ml_model import predict, should_retrain, train_models, get_model_info
 from core.value_bet import detect_value_bets
 from core.zhipu_ai import generate_analysis
 from core.betting_tips import generate_betting_tips
+from core.ui import inject_global_styles
 
 init_db()
+inject_global_styles()
 
 st.markdown("# 🎯 Meccs Elemzés")
 st.caption("ML predikció · AI összefoglaló · Value Bet detektálás")
@@ -105,6 +107,7 @@ if analyse:
         st.session_state[f"home_stats_{selected_fix_id}"] = home_stats
         st.session_state[f"away_stats_{selected_fix_id}"] = away_stats
         st.session_state[f"odds_{selected_fix_id}"] = odds
+        st.session_state.pop(f"analysis_{selected_fix_id}", None)
 
 # ---------------------------------------------------------------------------
 # Display results (from session state or DB)
@@ -423,8 +426,12 @@ if preds:
         "value_bets": value_bets if odds else [],
     }
 
-    with st.spinner("🤖 AI elemzés generálása..."):
-        analysis_text = generate_analysis(ai_stats)
+    analysis_key = f"analysis_{selected_fix_id}"
+    analysis_text = st.session_state.get(analysis_key)
+    if not analysis_text:
+        with st.spinner("🤖 AI elemzés generálása..."):
+            analysis_text = generate_analysis(ai_stats)
+        st.session_state[analysis_key] = analysis_text
 
     st.markdown(
         f'<div class="ai-summary-card">'

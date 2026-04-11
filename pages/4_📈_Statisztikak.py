@@ -8,8 +8,10 @@ from core.database import (
     get_settled_bets, get_bankroll,
 )
 from core.ml_model import get_model_info
+from core.ui import inject_global_styles
 
 init_db()
+inject_global_styles()
 
 st.markdown("# 📈 Statisztikák")
 st.caption("Modell teljesítmény • Equity curve • Historikus adatok")
