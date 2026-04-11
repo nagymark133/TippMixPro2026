@@ -8,6 +8,7 @@ Odds are NOT available on the free tier — the app falls back to DB-cached valu
 
 import logging
 import json
+import time
 from datetime import datetime, timezone, timedelta
 
 import requests
@@ -25,6 +26,9 @@ log = logging.getLogger(__name__)
 
 # Last API failure reason for UI diagnostics.
 _LAST_API_ERROR: str | None = None
+_REQUEST_TIMEOUT_SECONDS = 25
+_MAX_REQUEST_ATTEMPTS = 3
+_RETRY_BACKOFF_SECONDS = 1.5
 
 # ---------------------------------------------------------------------------
 # Status mapping: Football-Data.org -> internal short codes (FT, NS, …)
@@ -93,23 +97,47 @@ def _request(endpoint: str, params: dict | None = None) -> dict | None:
         return None
 
     url = f"{FOOTBALL_DATA_BASE}/{endpoint.lstrip('/')}"
-    try:
-        resp = requests.get(url, headers=FOOTBALL_DATA_HEADERS, params=params, timeout=15)
-        # Football-Data.org header: X-Requests-Available-Minute (remaining in current window)
-        _update_rate_limit(
-            resp.headers.get("X-Requests-Available-Minute"),
-            "10",  # free tier: 10/min
-        )
-        if not resp.ok:
-            preview = (resp.text or "")[:240].replace("\n", " ")
-            _LAST_API_ERROR = f"HTTP {resp.status_code} from Football-Data API: {preview}"
-            resp.raise_for_status()
-        return resp.json()
-    except requests.RequestException as e:
-        log.error("Football-Data.org request failed: %s", e)
-        if _LAST_API_ERROR is None:
-            _LAST_API_ERROR = f"Request failed: {e}"
-        return None
+    for attempt in range(1, _MAX_REQUEST_ATTEMPTS + 1):
+        try:
+            resp = requests.get(
+                url,
+                headers=FOOTBALL_DATA_HEADERS,
+                params=params,
+                timeout=_REQUEST_TIMEOUT_SECONDS,
+            )
+            # Football-Data.org header: X-Requests-Available-Minute (remaining in current window)
+            _update_rate_limit(
+                resp.headers.get("X-Requests-Available-Minute"),
+                "10",  # free tier: 10/min
+            )
+            if not resp.ok:
+                preview = (resp.text or "")[:240].replace("\n", " ")
+                _LAST_API_ERROR = f"HTTP {resp.status_code} from Football-Data API: {preview}"
+                resp.raise_for_status()
+            return resp.json()
+        except requests.Timeout as e:
+            log.warning(
+                "Football-Data.org timeout (attempt %s/%s): %s",
+                attempt,
+                _MAX_REQUEST_ATTEMPTS,
+                e,
+            )
+            if attempt < _MAX_REQUEST_ATTEMPTS:
+                time.sleep(_RETRY_BACKOFF_SECONDS * attempt)
+                continue
+            _LAST_API_ERROR = (
+                f"Request timed out after {_MAX_REQUEST_ATTEMPTS} attempts "
+                f"({_REQUEST_TIMEOUT_SECONDS}s timeout each)."
+            )
+            return None
+        except requests.RequestException as e:
+            log.error("Football-Data.org request failed (attempt %s/%s): %s", attempt, _MAX_REQUEST_ATTEMPTS, e)
+            if attempt < _MAX_REQUEST_ATTEMPTS:
+                time.sleep(_RETRY_BACKOFF_SECONDS * attempt)
+                continue
+            if _LAST_API_ERROR is None:
+                _LAST_API_ERROR = f"Request failed: {e}"
+            return None
 
 
 def get_last_api_error() -> str | None:
