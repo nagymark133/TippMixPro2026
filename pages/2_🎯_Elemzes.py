@@ -436,17 +436,17 @@ if preds:
         analysis_text = generate_analysis(ai_stats)
 
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg, #1e293b, #0f172a);
-                border:1px solid #334155; border-radius:12px; padding:1.2rem;">
-        <div style="font-size:0.8rem; color:#64748b; margin-bottom:0.5rem;">🤖 AI Összefoglaló</div>
-        <div style="color:#e2e8f0; line-height:1.6;">{analysis_text}</div>
-    </div>
+<div style="background:linear-gradient(135deg, #1e293b, #0f172a);
+            border:1px solid #334155; border-radius:12px; padding:1.2rem;">
+    <div style="font-size:0.8rem; color:#64748b; margin-bottom:0.5rem;">🤖 AI Összefoglaló</div>
+    <div style="color:#e2e8f0; line-height:1.6;">{analysis_text}</div>
+</div>
     """, unsafe_allow_html=True)
 
 else:
     st.markdown("""
-    <div style="text-align:center; padding:3rem 0; color:#64748b;">
-        <div style="font-size:3rem;">🎯</div>
-        <p>Válassz egy meccset és kattints az <strong>Elemzés indítása</strong> gombra!</p>
-    </div>
+<div style="text-align:center; padding:3rem 0; color:#64748b;">
+    <div style="font-size:3rem;">🎯</div>
+    <p>Válassz egy meccset és kattints az <strong>Elemzés indítása</strong> gombra!</p>
+</div>
     """, unsafe_allow_html=True)
