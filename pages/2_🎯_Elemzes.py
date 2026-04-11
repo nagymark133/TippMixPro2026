@@ -649,7 +649,7 @@ if preds:
 
         col_copy, col_clear = st.columns(2)
         with col_copy:
-            st.code(clipboard_text, language=None, line_numbers=False, container_width=True)
+            st.code(clipboard_text, language=None)
             st.markdown(
                 """
                 <style>
