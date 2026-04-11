@@ -1,24 +1,55 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 from html import escape
+from zoneinfo import ZoneInfo
 
 from core.database import (
     init_db, get_fixtures_by_date, get_team, get_latest_odds,
     get_all_leagues, insert_prediction, get_prediction,
+    insert_paper_bet, get_bankroll,
 )
 from core.api_football import fetch_team_statistics, fetch_head_to_head
 from core.ml_model import predict, should_retrain, train_models, get_model_info
 from core.value_bet import detect_value_bets
-from core.zhipu_ai import generate_analysis
+from core.zhipu_ai import generate_analysis, generate_quick_tip
 from core.betting_tips import generate_betting_tips
 from core.ui import inject_global_styles
 
 init_db()
 inject_global_styles()
 
+BUDAPEST_TZ = ZoneInfo("Europe/Budapest")
+
+
+def _fixture_time_budapest(fixture_date_str: str) -> str:
+    """Parse fixture UTC date string and return Budapest time as HH:MM."""
+    try:
+        dt = datetime.fromisoformat(fixture_date_str.replace("Z", "+00:00"))
+        bp = dt.astimezone(BUDAPEST_TZ)
+        return bp.strftime("%H:%M")
+    except Exception:
+        return ""
+
+
+def _fixture_datetime_budapest(fixture_date_str: str) -> str:
+    """Parse fixture UTC date and return Budapest datetime as YYYY-MM-DD HH:MM."""
+    try:
+        dt = datetime.fromisoformat(fixture_date_str.replace("Z", "+00:00"))
+        bp = dt.astimezone(BUDAPEST_TZ)
+        return bp.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return ""
+
+
 st.markdown("# 🎯 Meccs Elemzés")
 st.caption("ML predikció · AI összefoglaló · Value Bet detektálás")
+
+# ---------------------------------------------------------------------------
+# Bet basket init
+# ---------------------------------------------------------------------------
+if "bet_basket" not in st.session_state:
+    st.session_state["bet_basket"] = []
 
 # ---------------------------------------------------------------------------
 # Select match
@@ -31,12 +62,14 @@ if not fixtures:
     st.info("Nincs meccs erre a napra. Menj a **📊 Napi Meccsek** oldalra és frissíts!")
     st.stop()
 
-# Build options
+# Build options — with Budapest time
 fixture_options = {}
 for f in fixtures:
     ht = get_team(f["home_team_api_id"]) or {}
     at = get_team(f["away_team_api_id"]) or {}
-    label = f"{ht.get('name', '?')} vs {at.get('name', '?')}"
+    bp_time = _fixture_time_budapest(f["date"])
+    time_suffix = f" ({bp_time})" if bp_time else ""
+    label = f"{ht.get('name', '?')} vs {at.get('name', '?')}{time_suffix}"
     fixture_options[f["api_id"]] = label
 
 selected_fix_id = st.selectbox(
@@ -51,6 +84,11 @@ if not fix:
 
 home_team = get_team(fix["home_team_api_id"]) or {}
 away_team = get_team(fix["away_team_api_id"]) or {}
+
+# Show bankroll info
+bankroll = get_bankroll()
+if bankroll:
+    st.caption(f"💰 Paper Trading egyenleg: **{bankroll['balance']:,.0f} Ft**")
 
 st.divider()
 
@@ -108,6 +146,7 @@ if analyse:
         st.session_state[f"away_stats_{selected_fix_id}"] = away_stats
         st.session_state[f"odds_{selected_fix_id}"] = odds
         st.session_state.pop(f"analysis_{selected_fix_id}", None)
+        st.session_state.pop(f"quick_tip_{selected_fix_id}", None)
 
 # ---------------------------------------------------------------------------
 # Display results (from session state or DB)
@@ -119,14 +158,18 @@ away_stats = st.session_state.get(f"away_stats_{selected_fix_id}")
 odds = st.session_state.get(f"odds_{selected_fix_id}") or get_latest_odds(selected_fix_id)
 
 if preds:
-    # --- Match Header ---
+    # --- Match Header with Budapest time ---
     home_crest = home_team.get('crest', '')
     away_crest = away_team.get('crest', '')
     home_logo_html = f'<img class="team-logo-lg" src="{escape(home_crest)}" alt="">' if home_crest else '<div class="team-logo-lg" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem;">🏠</div>'
     away_logo_html = f'<img class="team-logo-lg" src="{escape(away_crest)}" alt="">' if away_crest else '<div class="team-logo-lg" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem;">✈️</div>'
+
+    bp_datetime = _fixture_datetime_budapest(fix["date"])
+    time_html = f'<div style="color:#94a3b8;font-size:0.85rem;margin-top:0.3rem;">🕐 {escape(bp_datetime)} (Budapest)</div>' if bp_datetime else ''
+
     st.markdown(f'<div class="analysis-header">'
         f'<div class="ah-team">{home_logo_html}<div class="ah-team-name">{escape(home_team.get("name", "?"))}</div></div>'
-        f'<div class="ah-vs">VS</div>'
+        f'<div class="ah-vs">VS{time_html}</div>'
         f'<div class="ah-team">{away_logo_html}<div class="ah-team-name">{escape(away_team.get("name", "?"))}</div></div>'
         f'</div>', unsafe_allow_html=True)
 
@@ -191,6 +234,35 @@ if preds:
             )
 
     # =====================================================================
+    # AI QUICK TIP (Feature 5 — short AI message)
+    # =====================================================================
+    ai_stats = {
+        "home_team": home_team.get("name", "?"),
+        "away_team": away_team.get("name", "?"),
+        "home_stats": home_stats,
+        "away_stats": away_stats,
+        "h2h": h2h,
+        "predictions": preds,
+        "odds": odds,
+        "value_bets": [],
+    }
+
+    quick_tip_key = f"quick_tip_{selected_fix_id}"
+    quick_tip_text = st.session_state.get(quick_tip_key)
+    if not quick_tip_text:
+        with st.spinner("🤖 AI gyors javaslat..."):
+            quick_tip_text = generate_quick_tip(ai_stats)
+        st.session_state[quick_tip_key] = quick_tip_text
+
+    st.markdown(
+        f'<div class="modern-card" style="border-left:4px solid #6366f1;padding:1rem 1.2rem;">'
+        f'<div style="font-size:0.8rem;font-weight:700;color:#6366f1;margin-bottom:0.4rem;">🤖 AI Gyors Javaslat</div>'
+        f'<div style="color:#f8fafc;font-size:0.95rem;line-height:1.6;">{escape(quick_tip_text)}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # =====================================================================
     # BETTING TIPS — ALL MARKETS
     # =====================================================================
     st.markdown('<p class="section-header">🎰 Fogadási Tippek — Összes Piac</p>', unsafe_allow_html=True)
@@ -200,6 +272,24 @@ if preds:
         home_name=home_team.get("name", "Hazai"),
         away_name=away_team.get("name", "Vendég"),
     )
+
+    # =====================================================================
+    # SORT CONTROLS (Feature 3)
+    # =====================================================================
+    sort_option = st.selectbox(
+        "🔄 Rendezés",
+        ["Esély szerint csökkenő ↓", "Esély szerint növekvő ↑", "ABC szerint (A→Z)", "ABC szerint (Z→A)"],
+        key="tip_sort",
+    )
+
+    if sort_option == "Esély szerint csökkenő ↓":
+        tips.sort(key=lambda t: t["prob"], reverse=True)
+    elif sort_option == "Esély szerint növekvő ↑":
+        tips.sort(key=lambda t: t["prob"])
+    elif sort_option == "ABC szerint (A→Z)":
+        tips.sort(key=lambda t: t["selection"].lower())
+    elif sort_option == "ABC szerint (Z→A)":
+        tips.sort(key=lambda t: t["selection"].lower(), reverse=True)
 
     # =====================================================================
     # AI Kiemelt Ajánlatok (87%+) - Swipeable Carousel
@@ -289,6 +379,9 @@ if preds:
         else:
             categories["🎯 Lövések & Egyéb"].append(tip)
 
+    # Helper: get match label for basket/paper bet
+    match_label = f"{home_team.get('name', '?')} vs {away_team.get('name', '?')}"
+
     # Create tabs for categories
     non_empty = {k: v for k, v in categories.items() if v}
     if non_empty:
@@ -297,7 +390,7 @@ if preds:
 
         for tab, cat_name in zip(tabs, tab_keys):
             with tab:
-                for tip in non_empty[cat_name]:
+                for idx, tip in enumerate(non_empty[cat_name]):
                     prob_pct = f"{tip['prob']:.0%}"
                     emoji = tip["confidence_emoji"]
                     conf = tip["confidence_label"]
@@ -326,6 +419,80 @@ if preds:
                         f'</div>',
                         unsafe_allow_html=True,
                     )
+
+                    # --- Action buttons: Paper Trade ➕ and Basket 🛒 ---
+                    tip_key = f"{cat_name}_{idx}_{tip['market']}"
+                    col_pt, col_bk = st.columns(2)
+
+                    with col_pt:
+                        if st.button("➕ Paper Trade", key=f"pt_{tip_key}"):
+                            st.session_state[f"show_pt_{tip_key}"] = True
+
+                    with col_bk:
+                        if st.button("🛒 Kosárba", key=f"bk_{tip_key}"):
+                            basket_item = {
+                                "match": match_label,
+                                "fixture_api_id": selected_fix_id,
+                                "market": tip["market"],
+                                "selection": tip["selection"],
+                                "prob": tip["prob"],
+                                "odds": tip.get("odds"),
+                                "confidence": tip["confidence_label"],
+                            }
+                            already = any(
+                                b["fixture_api_id"] == basket_item["fixture_api_id"]
+                                and b["market"] == basket_item["market"]
+                                and b["selection"] == basket_item["selection"]
+                                for b in st.session_state["bet_basket"]
+                            )
+                            if not already:
+                                st.session_state["bet_basket"].append(basket_item)
+                                st.success(f"🛒 Kosárba: {tip['selection']}")
+                            else:
+                                st.warning("Már a kosárban van!")
+
+                    # Paper Trade quick-add form
+                    if st.session_state.get(f"show_pt_{tip_key}"):
+                        with st.expander(f"➕ Paper Bet: {tip['selection']}", expanded=True):
+                            with st.form(key=f"ptform_{tip_key}"):
+                                default_odds = tip.get("odds") or 2.0
+                                pt_odds = st.number_input(
+                                    "📈 Odds", min_value=1.01, value=float(default_odds),
+                                    step=0.05, key=f"ptodds_{tip_key}",
+                                )
+                                current_bal = bankroll["balance"] if bankroll else 10000
+                                pt_stake = st.number_input(
+                                    "💵 Tét (Ft)", min_value=100, max_value=int(current_bal),
+                                    value=min(1000, int(current_bal)), step=100,
+                                    key=f"ptstake_{tip_key}",
+                                )
+                                # Map tip to bet_type + selection for paper_bets
+                                market_lower = tip["market"].lower()
+                                if "1x2" in market_lower:
+                                    pt_bet_type = "1X2"
+                                    sel = tip["selection"]
+                                    if "hazai" in sel.lower() or "home" in sel.lower() or "(1)" in sel:
+                                        pt_selection = "Home"
+                                    elif "döntetlen" in sel.lower() or "draw" in sel.lower() or "(x)" in sel.lower():
+                                        pt_selection = "Draw"
+                                    else:
+                                        pt_selection = "Away"
+                                elif "gól" in market_lower and ("felett" in tip["selection"].lower() or "over" in tip["selection"].lower()):
+                                    pt_bet_type = "OU25"
+                                    pt_selection = "Over"
+                                elif "gól" in market_lower and ("alatt" in tip["selection"].lower() or "under" in tip["selection"].lower()):
+                                    pt_bet_type = "OU25"
+                                    pt_selection = "Under"
+                                else:
+                                    pt_bet_type = "1X2"
+                                    pt_selection = "Home"
+
+                                submitted = st.form_submit_button("✅ Paper Bet rögzítése", type="primary")
+                                if submitted:
+                                    insert_paper_bet(selected_fix_id, pt_bet_type, pt_selection, pt_odds, pt_stake)
+                                    st.success(f"✅ Paper bet rögzítve! {match_label} — {tip['selection']} @ {pt_odds:.2f} | Tét: {pt_stake:,.0f} Ft")
+                                    st.session_state[f"show_pt_{tip_key}"] = False
+                                    st.rerun()
 
     # =====================================================================
     # VALUE BET DETECTOR
@@ -411,35 +578,83 @@ if preds:
             st.caption("Nincs form adat.")
 
     # =====================================================================
-    # AI SUMMARY
+    # AI SUMMARY (detailed)
     # =====================================================================
     st.markdown('<p class="section-header">🧠 AI Elemzés (Zhipu GLM)</p>', unsafe_allow_html=True)
 
-    ai_stats = {
-        "home_team": home_team.get("name", "?"),
-        "away_team": away_team.get("name", "?"),
-        "home_stats": home_stats,
-        "away_stats": away_stats,
-        "h2h": h2h,
-        "predictions": preds,
-        "odds": odds,
-        "value_bets": value_bets if odds else [],
-    }
+    ai_stats["value_bets"] = value_bets if odds else []
 
     analysis_key = f"analysis_{selected_fix_id}"
     analysis_text = st.session_state.get(analysis_key)
     if not analysis_text:
-        with st.spinner("🤖 AI elemzés generálása..."):
+        with st.spinner("🤖 AI részletes elemzés generálása..."):
             analysis_text = generate_analysis(ai_stats)
         st.session_state[analysis_key] = analysis_text
 
     st.markdown(
         f'<div class="ai-summary-card">'
-        f'<div class="ai-badge">🤖 AI Összefoglaló</div>'
+        f'<div class="ai-badge">🤖 AI Részletes Összefoglaló</div>'
         f'<div class="ai-text">{analysis_text}</div>'
         f'</div>',
         unsafe_allow_html=True,
     )
+
+    # =====================================================================
+    # BET BASKET / FOGADÁSKÉSZÍTŐ (Feature 2)
+    # =====================================================================
+    basket = st.session_state.get("bet_basket", [])
+    if basket:
+        st.markdown('<p class="section-header">🛒 Fogadáskészítő Kosár</p>', unsafe_allow_html=True)
+
+        total_odds = 1.0
+        basket_lines = []
+        for bi, item in enumerate(basket):
+            item_odds = item.get("odds") or 2.0
+            total_odds *= item_odds
+            basket_lines.append(
+                f"• {item['match']} — {item['market']}: {item['selection']} "
+                f"({item['prob']:.0%}) @ {item_odds:.2f}"
+            )
+
+            col_info_b, col_del = st.columns([5, 1])
+            with col_info_b:
+                st.markdown(
+                    f'<div class="modern-card" style="padding:0.6rem 1rem;margin-bottom:0.3rem;">'
+                    f'<div style="font-size:0.85rem;font-weight:600;color:#f8fafc;">{escape(item["match"])}</div>'
+                    f'<div style="font-size:0.8rem;color:#94a3b8;">'
+                    f'{escape(item["market"])}: <b>{escape(item["selection"])}</b> ({item["prob"]:.0%}) @ {item_odds:.2f}'
+                    f'</div></div>',
+                    unsafe_allow_html=True,
+                )
+            with col_del:
+                if st.button("🗑️", key=f"del_basket_{bi}"):
+                    st.session_state["bet_basket"].pop(bi)
+                    st.rerun()
+
+        st.markdown(
+            f'<div class="modern-card" style="border:1px solid #6366f1;padding:1rem;">'
+            f'<div style="font-size:1rem;font-weight:700;color:#6366f1;">📊 Összesített szorzó: {total_odds:.2f}</div>'
+            f'<div style="font-size:0.8rem;color:#94a3b8;margin-top:0.3rem;">{len(basket)} meccs a kosárban</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # Copy to clipboard text
+        clipboard_text = "🎯 TippMixPro Fogadáskészítő\n"
+        clipboard_text += "=" * 30 + "\n"
+        for line in basket_lines:
+            clipboard_text += line + "\n"
+        clipboard_text += f"\nÖsszesített szorzó: {total_odds:.2f}"
+        clipboard_text += f"\nTételek száma: {len(basket)}"
+
+        col_copy, col_clear = st.columns(2)
+        with col_copy:
+            st.code(clipboard_text, language=None)
+            st.caption("⬆️ Másold ki a fenti szöveget a TippMixPro oldalon való megjátszáshoz!")
+        with col_clear:
+            if st.button("🗑️ Kosár ürítése", type="secondary"):
+                st.session_state["bet_basket"] = []
+                st.rerun()
 
 else:
     st.markdown(
