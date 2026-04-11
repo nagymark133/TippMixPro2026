@@ -12,7 +12,7 @@ MODELS_DIR = BASE_DIR / "models"
 DATA_DIR.mkdir(exist_ok=True)
 MODELS_DIR.mkdir(exist_ok=True)
 
-DB_PATH = DATA_DIR / "tippmix.db"
+DB_PATH = DATA_DIR / "tippmix.db"  # fallback lokális DB
 
 
 def _normalize_secret(value) -> str:
@@ -72,6 +72,11 @@ def get_secret(key: str, default: str = "") -> str:
     return default
 
 FOOTBALL_DATA_KEY = get_secret("FOOTBALL_DATA_KEY")
+
+# Turso / libsql (ha megadva, akkor ez az elsődleges adatbázis)
+TURSO_DATABASE_URL = get_secret("TURSO_DATABASE_URL")
+TURSO_AUTH_TOKEN = get_secret("TURSO_AUTH_TOKEN")
+
 FOOTBALL_DATA_BASE = "https://api.football-data.org/v4"
 FOOTBALL_DATA_HEADERS = {
     "X-Auth-Token": FOOTBALL_DATA_KEY,

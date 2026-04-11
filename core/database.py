@@ -2,10 +2,112 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
-from core.config import DB_PATH, DEFAULT_INITIAL_BALANCE
+from core.config import DB_PATH, DEFAULT_INITIAL_BALANCE, TURSO_DATABASE_URL, TURSO_AUTH_TOKEN
 
 SQLITE_CONNECT_TIMEOUT_SECONDS = 30
 SQLITE_BUSY_TIMEOUT_MS = 30000
+
+# ---------------------------------------------------------------------------
+# Turso / libsql vs local SQLite selection
+# ---------------------------------------------------------------------------
+
+_USE_TURSO = bool(TURSO_DATABASE_URL and TURSO_AUTH_TOKEN)
+
+if _USE_TURSO:
+    try:
+        import libsql_experimental as libsql
+    except ImportError as e:
+        raise ImportError(
+            "libsql-experimental könyvtár hiányzik. Futtasd: pip install libsql-experimental"
+        ) from e
+
+
+class _LibsqlRow:
+    """Wraps a libsql tuple row so it behaves like sqlite3.Row (dict-like access)."""
+    __slots__ = ("_data",)
+
+    def __init__(self, keys, values):
+        self._data = dict(zip([k.lower() for k in keys], values))
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self._data.values())[key]
+        return self._data[key.lower()]
+
+    def get(self, key, default=None):
+        return self._data.get(key.lower(), default)
+
+    def keys(self):
+        return list(self._data.keys())
+
+    def __iter__(self):
+        return iter(self._data.values())
+
+
+class _WrappedCursor:
+    """Wraps a libsql cursor so fetchone/fetchall return _LibsqlRow objects."""
+
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    @property
+    def description(self):
+        return self._cursor.description
+
+    def _col_keys(self):
+        if self._cursor.description:
+            return [d[0] for d in self._cursor.description]
+        return []
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        keys = self._col_keys()
+        if not keys:
+            return row
+        return _LibsqlRow(keys, row)
+
+    def fetchall(self):
+        rows = self._cursor.fetchall()
+        if not rows:
+            return []
+        keys = self._col_keys()
+        if not keys:
+            return rows
+        return [_LibsqlRow(keys, r) for r in rows]
+
+
+class _LibsqlConn:
+    """Minimal connection wrapper around libsql that matches the sqlite3 API used here."""
+
+    def __init__(self):
+        self._conn = libsql.connect(
+            database=TURSO_DATABASE_URL,
+            auth_token=TURSO_AUTH_TOKEN,
+        )
+
+    def execute(self, sql, params=()):
+        cur = self._conn.execute(sql, params)
+        return _WrappedCursor(cur)
+
+    def executescript(self, sql):
+        # libsql doesn't have executescript; split and run individually
+        for stmt in sql.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                self._conn.execute(stmt)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        # libsql-experimental doesn't expose explicit rollback
+        pass
+
+    def close(self):
+        pass  # libsql manages its own lifecycle
+
 
 # ---------------------------------------------------------------------------
 # Connection helper
@@ -13,10 +115,13 @@ SQLITE_BUSY_TIMEOUT_MS = 30000
 
 @contextmanager
 def get_db():
-    conn = sqlite3.connect(str(DB_PATH), timeout=SQLITE_CONNECT_TIMEOUT_SECONDS)
-    conn.row_factory = sqlite3.Row
-    conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
-    conn.execute("PRAGMA foreign_keys=ON")
+    if _USE_TURSO:
+        conn = _LibsqlConn()
+    else:
+        conn = sqlite3.connect(str(DB_PATH), timeout=SQLITE_CONNECT_TIMEOUT_SECONDS)
+        conn.row_factory = sqlite3.Row
+        conn.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
         conn.commit()
@@ -138,8 +243,9 @@ CREATE TABLE IF NOT EXISTS bankroll (
 
 def init_db():
     with get_db() as conn:
-        # WAL is persistent per database file; configure it during initialization only.
-        conn.execute("PRAGMA journal_mode=WAL")
+        # WAL mode only supported for local SQLite
+        if not _USE_TURSO:
+            conn.execute("PRAGMA journal_mode=WAL")
         conn.executescript(_SCHEMA)
         # Seed bankroll if empty
         row = conn.execute("SELECT COUNT(*) as cnt FROM bankroll").fetchone()
@@ -417,17 +523,3 @@ def reset_bankroll(initial=None):
             "UPDATE bankroll SET balance=?, initial_balance=?, updated_at=? WHERE id=1",
             (amount, amount, _now_iso()),
         )
-
-
-# ---------------------------------------------------------------------------
-# Utility
-# ---------------------------------------------------------------------------
-
-def count_finished_since(iso_date):
-    """Count finished fixtures updated after a given ISO date string."""
-    with get_db() as conn:
-        row = conn.execute(
-            "SELECT COUNT(*) as cnt FROM fixtures WHERE status='FT' AND updated_at > ?",
-            (iso_date,),
-        ).fetchone()
-        return row["cnt"]
