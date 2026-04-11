@@ -26,11 +26,16 @@ with col_btn:
                         disabled=not API_FOOTBALL_KEY)
 with col_quota:
     st.markdown("<br/>", unsafe_allow_html=True)
-    rl = get_rate_limit_info()
-    if rl["remaining"] is not None:
-        st.info(f"API kvóta: **{rl['remaining']}** / {rl['limit']}")
-    elif not API_FOOTBALL_KEY:
-        st.error("⚠️ Nincs API kulcs beállítva. Streamliten add meg a Secrets-ben, lokálisan pedig a .env fájlban!")
+    quota_placeholder = st.empty()
+
+    def update_quota_display():
+        rl = get_rate_limit_info()
+        if rl["remaining"] is not None:
+            quota_placeholder.info(f"API kvóta: **{rl['remaining']}** / {rl['limit']}")
+        elif not API_FOOTBALL_KEY:
+            quota_placeholder.error("⚠️ Nincs API kulcs beállítva. Streamliten add meg a Secrets-ben, lokálisan pedig a .env fájlban!")
+
+    update_quota_display()
 
 date_str = selected_date.strftime("%Y-%m-%d")
 
@@ -51,11 +56,9 @@ if refresh:
             fetch_odds_for_fixture(fix["api_id"])
             odds_progress.progress((i + 1) / limit_fixtures, text=f"Odds letöltése: {i+1}/{limit_fixtures}")
         odds_progress.empty()
+        
     st.success(f"✅ {len(fixtures)} meccs frissítve!")
-    # Update rate limit display
-    rl = get_rate_limit_info()
-    if rl["remaining"] is not None:
-        st.info(f"Maradék API kvóta: **{rl['remaining']}** / {rl['limit']}")
+    update_quota_display()
 else:
     fixtures = get_fixtures_by_date(date_str)
 

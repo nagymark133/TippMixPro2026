@@ -1,4 +1,6 @@
 import logging
+import json
+from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 import requests
@@ -7,6 +9,7 @@ from core.config import (
     API_FOOTBALL_BASE,
     API_FOOTBALL_HEADERS,
     API_FOOTBALL_KEY,
+    DATA_DIR,
     CACHE_TTL_HOURS,
 )
 from core import database as db
@@ -14,22 +17,47 @@ from core import database as db
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Rate-limit state (in-memory, per session)
+# Rate-limit state
 # ---------------------------------------------------------------------------
-_rate_limit_remaining: int | None = None
-_rate_limit_limit: int | None = None
+_RATELIMIT_FILE = DATA_DIR / "ratelimit.json"
 
+def get_rate_limit_info() -> dict:
+    # Try reading from disk
+    if _RATELIMIT_FILE.exists():
+        try:
+            with open(_RATELIMIT_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            # Only use if from today
+            stored_date = data.get("date")
+            if stored_date == datetime.now(timezone.utc).strftime("%Y-%m-%d"):
+                return {"remaining": data.get("remaining"), "limit": data.get("limit")}
+        except Exception:
+            pass
 
-def get_rate_limit_info():
-    return {"remaining": _rate_limit_remaining, "limit": _rate_limit_limit}
+    # If no data for today yet, return safe fallback or None
+    return {"remaining": None, "limit": None}
 
+def _update_rate_limit(remaining: str | None, limit: str | None):
+    if remaining is None or limit is None:
+        return
+    try:
+        rem = int(remaining)
+        lim = int(limit)
+        data = {
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "remaining": rem,
+            "limit": lim
+        }
+        with open(_RATELIMIT_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
 
 # ---------------------------------------------------------------------------
 # Low-level request helper
 # ---------------------------------------------------------------------------
 
 def _request(endpoint: str, params: dict | None = None) -> dict | None:
-    global _rate_limit_remaining, _rate_limit_limit
     if not API_FOOTBALL_KEY:
         log.warning("API_FOOTBALL_KEY not configured")
         return None
@@ -39,8 +67,10 @@ def _request(endpoint: str, params: dict | None = None) -> dict | None:
         resp = requests.get(url, headers=API_FOOTBALL_HEADERS, params=params, timeout=15)
         
         # Track rate limits from response headers
-        _rate_limit_remaining = _try_int(resp.headers.get("x-ratelimit-requests-remaining"))
-        _rate_limit_limit = _try_int(resp.headers.get("x-ratelimit-requests-limit"))
+        _update_rate_limit(
+            resp.headers.get("x-ratelimit-requests-remaining"),
+            resp.headers.get("x-ratelimit-requests-limit")
+        )
             
         resp.raise_for_status()
         data = resp.json()
